@@ -159,8 +159,10 @@ Distribuído sob a licença **Apache 2.0**. Veja `LICENSE` para detalhes.
 
 Para apoiar esse e mais projetos independentes:
 
-<https://www.github.com/Loboguar4>
+<https://www.github.com/Loboguar4><br>
+
 <https://www.youtube.com/@esc-SubDev>
+
 <https://www.pixgg.com/bandeirinha>
 
 ---
