@@ -1,0 +1,2656 @@
+<!DOCTYPE html>
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║           HAYAI KARTING: Traction Lab  —  Alpha 0.5                      ║
+  ╠══════════════════════════════════════════════════════════════════════════╣
+  ║  Autor      : Bandeirinha                                                ║
+  ║  Licença    : Apache 2.0                                                 ║
+  ║  Versão     : Alpha 0.5 (Treino Livre)                                   ║
+  ╠══════════════════════════════════════════════════════════════════════════╣
+  ║  OBJETIVO                                                                ║
+  ║  Fundir aspectos de pilotagem real de um kart IAME X30 125cc com         ║
+  ║  elementos originais (sistema de agressividade, stamina e slipstream     ║
+  ║  exagerado). Tudo numa webengine leve, Mode7, em JS + HTML5 puro.        ║
+  ║                                                                          ║
+  ║  FILOSOFIA                                                               ║
+  ║  Máxima acessibilidade — executável em (quase) qualquer navegador web.   ║
+  ║  Arquivo único, sem dependências externas, sem servidor.                 ║
+  ╠══════════════════════════════════════════════════════════════════════════╣
+  ║  FUNDAMENTOS DESTA VERSÃO                                                ║
+  ║  · Tracionamento: understeer, oversteer, counter-steer                   ║
+  ║  · Linha de corrida: traçado e APEX                                      ║
+  ╠══════════════════════════════════════════════════════════════════════════╣
+  ║  ARQUITETURA — SISTEMAS PRINCIPAIS                                       ║
+  ║                                                                          ║
+  ║  RENDERIZAÇÃO                                                            ║
+  ║  · Mode7 por scanline (ImageData 480×270, perspectiva corrigida)         ║
+  ║  · Textura de mundo: canvas offscreen 9 600×9 600 px                     ║
+  ║  · Spline Catmull-Rom: 32 pontos de controle, 4 200 segmentos            ║
+  ║  · Cockpit desenhado em canvas 2D (volante, pneus, racebox)              ║
+  ║  · Minimapa gerado em canvas offscreen (96×72 px)                        ║
+  ║                                                                          ║
+  ║  FÍSICA — BICYCLE MODEL                                                  ║
+  ║  · Dois eixos (frente/trás), slip angle, weight transfer dinâmico        ║
+  ║  · Pneu híbrido: linear até 0,28 rad, falloff exponencial além           ║
+  ║  · Traction circle: longAcc reduz capacidade lateral                     ║
+  ║  · Fricção viscosa de guinada: limita spins a 150-270°                   ║
+  ║  · Lock-up determinístico com pumping                                    ║
+  ║                                                                          ║
+  ║  MOTOR — IAME PARILLA X30 125cc                                          ║
+  ║  · Curva de torque: gaussiana + shoulder (Cf=12000, Cr=11000 N/rad)      ║
+  ║  · 3 200 rpm idle | 11 000 rpm pico | 13 500 rpm redline                 ║
+  ║  · 165 kg total | 1,05 m wheelbase | CG bias 42% | Iz = 18 kg·m²         ║
+  ║  · Vmax = 140 km/h | 0-100 km/h ≈ 5,5 s                                  ║
+  ║                                                                          ║
+  ║  SISTEMAS ORIGINAIS                                                      ║
+  ║  · Agressividade [A]: estende limites de esterço, freio e aceleração     ║
+  ║  · Stamina: [A] consome resistência; lockout em zona vermelha            ║
+  ║  · Slipstream: vácuo acumulável com bônus de velocidade                  ║
+  ║  · Temperatura (pneus + freios): grip e frenagem dependem de temp.       ║
+  ║  · Controle de Tração (TC): slider 0-10 configurável no menu             ║
+  ║                                                                          ║
+  ║  PISTA                                                                   ║
+  ║  · Circuito horário com 32 CPs, 6 curvas, S/F + 2 setores                ║
+  ║  · Barreiras de pneus com colisão OBB por coluna                         ║
+  ║  · Zebras geradas por curvatura (tipos rb/bw, inner/outer)               ║
+  ║  · Texturas: asfalto, patches de concreto, acúmulo de borracha           ║
+  ║                                                                          ║
+  ║  ÁUDIO — Web Audio API (síntese procedural)                              ║
+  ║  · Pulsos de combustão 2T discretos (1 pulso/revolução)                  ║
+  ║  · Camadas: crank, vento, rolamento, chiado, kerb, mecânico              ║
+  ║  · One-shots: batida em barreira, solavanco de zebra, chirps de pneu     ║
+  ╠══════════════════════════════════════════════════════════════════════════╣
+  ║  CONTROLES                                                               ║
+  ║  Teclado: ↑↓←→ = acelerar/frear/esterçar | A = agressivo                 ║
+  ║           L = voltas | F = fullscreen                                    ║
+  ║  Mouse:   RMB = acelerar | LMB = frear | X = esterço                     ║
+  ╠══════════════════════════════════════════════════════════════════════════╣
+  ║  PARA APOIAR PROJETOS INDEPENDENTES: [meus links]                        ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="HAYAI KARTING: Traction Lab — Simulador de kart baseado em Mode7, física de bicycle model e motor IAME X30 125cc. Arquivo único HTML5, sem dependências.">
+<meta name="author" content="Bandeirinha">
+<meta name="version" content="Alpha 0.5">
+<meta name="license" content="Apache-2.0">
+<title>HAYAI KARTING — Traction Lab α0.5</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden}
+canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+#overlay{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.92);z-index:10;color:#fff;text-align:center;
+  flex-direction:column;gap:13px;font-family:'Courier New',monospace;
+}
+#overlay h1{font-size:2.2em;letter-spacing:.18em;color:#f90;text-shadow:0 0 24px #f906}
+#overlay .sub{color:#f90;font-size:.75em;letter-spacing:.3em;margin-top:-8px}
+#overlay table{border-collapse:collapse;font-size:.8em;color:#ccc;margin:0 auto}
+#overlay td{padding:2px 10px;text-align:left}
+#overlay td:first-child{color:#fa0;text-align:right;padding-right:14px}
+#overlay .warn{color:#f66;font-size:.76em;max-width:460px;line-height:1.75}
+#startBtn{
+  margin-top:4px;padding:10px 42px;background:#f90;color:#000;
+  border:none;font-size:.95em;font-family:'Courier New',monospace;font-weight:bold;
+  letter-spacing:.12em;cursor:pointer;border-radius:2px;transition:all .12s;
+}
+#startBtn:hover{background:#ffb300;transform:scale(1.05)}
+</style>
+</head>
+<body>
+<div id="overlay">
+  <h1>HAYAI KARTING</h1>
+  <div class="sub">TRACTION LAB &nbsp;·&nbsp; α&nbsp;0.5</div>
+
+  <!-- TAB BUTTONS -->
+  <div style="display:flex;gap:0;margin-bottom:-1px">
+    <button class="tabBtn active" id="tabTeclado" onclick="switchTab('teclado')" style="padding:5px 18px;background:#f90;color:#000;border:none;font-family:'Courier New',monospace;font-size:.72em;font-weight:bold;letter-spacing:.1em;cursor:pointer;border-radius:2px 0 0 0">TECLADO</button>
+    <button class="tabBtn" id="tabMouse" onclick="switchTab('mouse')" style="padding:5px 18px;background:#333;color:#fa0;border:none;font-family:'Courier New',monospace;font-size:.72em;font-weight:bold;letter-spacing:.1em;cursor:pointer;border-radius:0 2px 0 0">MOUSE</button>
+  </div>
+
+  <!-- TECLADO TAB -->
+  <div id="panelTeclado" style="border:1px solid #f904;padding:8px 6px 4px">
+    <table>
+      <tr><td>↑</td><td>Acelerar</td><td>↓</td><td>Freiar</td></tr>
+      <tr><td>←</td><td>Virar esquerda</td><td>→</td><td>Virar direita</td></tr>
+      <tr><td>A + ←→</td><td>Esterço agressivo</td><td>A + ↓</td><td>Freio agressivo</td></tr>
+      <tr><td>A + ↑</td><td>Slipstream (vácuo)</td></tr>
+    </table>
+  </div>
+
+  <!-- MOUSE TAB -->
+  <div id="panelMouse" style="display:none;border:1px solid #f904;padding:8px 14px 6px;min-width:320px">
+    <table>
+      <tr><td>Btn Direito</td><td>Acelerar</td></tr>
+      <tr><td>Btn Esquerdo</td><td>Freiar</td></tr>
+      <tr><td>Movimento X</td><td>Esterçamento</td></tr>
+      <tr><td>[A]</td><td>Agressividade</td></tr>
+    </table>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:10px;font-size:.78em;color:#ccc">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="mouseToggle" onchange="toggleMouseCtrl(this.checked)" style="accent-color:#f90;width:14px;height:14px">
+        <span>Ativar controle por mouse</span>
+      </label>
+    </div>
+    <div style="margin-top:6px;font-size:.72em;color:#888">
+      Sensibilidade do esterço:<br>
+      <input type="range" id="mouseSens" min="1" max="10" value="5" style="width:180px;accent-color:#f90;margin-top:3px" oninput="updateMouseSens(this.value)">
+      <span id="mouseSensVal" style="color:#fa0;margin-left:6px">5</span>
+    </div>
+  </div>
+
+  <div class="warn">
+    Pneus frios = grip reduzido. Aqueça nas primeiras voltas.<br>
+    Freios só aquecem em alta velocidade.<br>
+    Zebra vermelha/branca = desestabiliza. Azul/branca = mais suave.
+  </div>
+  <!-- SLIDERS DE CONFIGURAÇÃO -->
+  <div style="display:flex;flex-direction:column;gap:7px;font-family:'Courier New',monospace;width:340px;border:1px solid #f904;padding:8px 12px">
+    <div style="color:#f90;font-size:.70em;letter-spacing:.15em;margin-bottom:2px">CONFIGURAÇÕES</div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:.73em">
+      <span style="color:#fa0;width:150px;text-align:right">CONTROLE DE TRAÇÃO</span>
+      <input type="range" id="tcSlider" min="0" max="10" value="0"
+             style="width:100px;accent-color:#f90;cursor:pointer"
+             oninput="updateTC(this.value)">
+      <span id="tcVal" style="color:#fff;min-width:72px">DESLIGADO</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:.73em">
+      <span style="color:#fa0;width:150px;text-align:right">SENS. ESTERÇO</span>
+      <input type="range" id="steerSensSlider" min="1" max="10" value="5"
+             style="width:100px;accent-color:#f90;cursor:pointer"
+             oninput="updateSteerSens(this.value)">
+      <span id="steerSensVal" style="color:#fff;min-width:72px">MÉDIO (5)</span>
+    </div>
+  </div>
+
+  <div id="bestList" style="font-size:.75em;color:#0f0;letter-spacing:.06em"></div>
+  <button onclick="confirmResetLaps()" style="padding:8px 14px 6px;min-width:320px;background:#222;color:#f90;border:1px solid #f90;font-family:'Courier New',monospace;font-size:.8em;font-weight:bold;letter-spacing:.1em;cursor:pointer;border-radius:2px">RESETAR RECORDES</button>
+  <div style="display:flex;gap:10px;align-items:center;justify-content:center">
+    <button id="startBtn" onclick="startGame()">LARGAR</button>
+    <button onclick="toggleFullscreen()" style="padding:10px 18px;background:#333;color:#fa0;border:1px solid #f904;font-family:'Courier New',monospace;font-size:.85em;font-weight:bold;letter-spacing:.1em;cursor:pointer;border-radius:2px" title="Ativar tela cheia [F]">&#x26F6; FULLSCREEN</button>
+  </div>
+</div>
+<script>
+function switchTab(tab){
+  document.getElementById('panelTeclado').style.display=tab==='teclado'?'block':'none';
+  document.getElementById('panelMouse').style.display=tab==='mouse'?'block':'none';
+  document.getElementById('tabTeclado').style.background=tab==='teclado'?'#f90':'#333';
+  document.getElementById('tabTeclado').style.color=tab==='teclado'?'#000':'#fa0';
+  document.getElementById('tabMouse').style.background=tab==='mouse'?'#f90':'#333';
+  document.getElementById('tabMouse').style.color=tab==='mouse'?'#000':'#fa0';
+}
+function toggleFullscreen(){
+  if(!document.fullscreenElement){
+    (document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen||function(){}).call(document.documentElement);
+  } else {
+    (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
+  }
+}
+function confirmResetLaps(){
+  // Custom confirm overlay
+  const d=document.createElement('div');
+  d.id='confirmDlg';
+  Object.assign(d.style,{position:'fixed',inset:'0',background:'rgba(0,0,0,0.88)',zIndex:'99',
+    display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'18px',
+    fontFamily:"'Courier New',monospace",color:'#fff'});
+  d.innerHTML=`
+    <div style="font-size:1.1em;color:#f90;letter-spacing:.12em">RESETAR RECORDES?</div>
+    <div style="font-size:.78em;color:#aaa">Todos os tempos salvos serão apagados.</div>
+    <div style="display:flex;gap:14px">
+      <button onclick="doResetLaps()" style="padding:9px 28px;background:#c00;color:#fff;border:none;font-family:'Courier New',monospace;font-size:.85em;font-weight:bold;letter-spacing:.1em;cursor:pointer;border-radius:2px">SIM, APAGAR</button>
+      <button onclick="document.getElementById('confirmDlg').remove()" style="padding:9px 28px;background:#333;color:#fa0;border:1px solid #f90;font-family:'Courier New',monospace;font-size:.85em;font-weight:bold;letter-spacing:.1em;cursor:pointer;border-radius:2px">CANCELAR</button>
+    </div>`;
+  document.body.appendChild(d);
+}
+function doResetLaps(){
+  const d=document.getElementById('confirmDlg');
+  if(d) d.remove();
+  resetBestLaps();
+}
+function updateTC(v){
+  const n=parseInt(v);
+  if(typeof SETTINGS!=='undefined') SETTINGS.tcLevel=n;
+  document.getElementById('tcVal').textContent=n===0?'DESLIGADO':n+'/10';
+}
+function updateSteerSens(v){
+  const n=parseInt(v);
+  if(typeof SETTINGS!=='undefined') SETTINGS.steerSens=n;
+  const lbl=n<=2?'MÍNIMA':n<=4?'BAIXA':n===5?'MÉDIO':n<=7?'ALTA':'MÁXIMA';
+  document.getElementById('steerSensVal').textContent=lbl+' ('+n+')';
+}
+</script>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+
+/* ── SETTINGS DE JOGO (controlados pelos sliders do menu) ── */
+const SETTINGS={tcLevel:0,steerSens:5};
+
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+const IW=480,IH=270;
+const buf=document.createElement('canvas');
+buf.width=IW; buf.height=IH;
+const bx=buf.getContext('2d');
+bx.imageSmoothingEnabled=false;
+
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight;}
+addEventListener('resize',resize); resize();
+
+const keys={};
+addEventListener('keydown',e=>{keys[e.key]=true;e.preventDefault();});
+addEventListener('keyup',e=>{keys[e.key]=false;});
+
+/* ── MOUSE CONTROL ─────────────────────────────────────────────── */
+const mouse={enabled:false,sensScale:1.0,accel:false,brake:false,steer:0,rawX:0};
+function toggleMouseCtrl(on){
+  mouse.enabled=on;
+  if(on) canvas.requestPointerLock&&canvas.requestPointerLock();
+  else document.exitPointerLock&&document.exitPointerLock();
+}
+function updateMouseSens(v){
+  mouse.sensScale=v/5;
+  document.getElementById('mouseSensVal').textContent=v;
+}
+// Mouse button state
+canvas.addEventListener('mousedown',e=>{
+  if(!mouse.enabled) return;
+  e.preventDefault();
+  if(e.button===2) mouse.accel=true;
+  if(e.button===0) mouse.brake=true;
+});
+canvas.addEventListener('mouseup',e=>{
+  if(!mouse.enabled) return;
+  if(e.button===2) mouse.accel=false;
+  if(e.button===0) mouse.brake=false;
+});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+// Mouse movement → steer
+addEventListener('mousemove',e=>{
+  if(!mouse.enabled) return;
+  // Use movementX when pointer locked, else absolute X mapped to [-1,1]
+  if(document.pointerLockElement===canvas){
+    mouse.steer=Math.max(-1,Math.min(1,mouse.steer+e.movementX*0.012*mouse.sensScale));
+  } else {
+    mouse.steer=Math.max(-1,Math.min(1,(e.clientX/innerWidth-0.5)*2*mouse.sensScale));
+  }
+});
+// Natural steer return when no movement (done in physics via mouse.steer decay)
+
+const K={
+  up:()=>!!keys['ArrowUp']||(mouse.enabled&&mouse.accel),
+  dn:()=>!!keys['ArrowDown']||(mouse.enabled&&mouse.brake),
+  left:()=>!!keys['ArrowLeft']||(mouse.enabled&&mouse.steer<-0.08),
+  right:()=>!!keys['ArrowRight']||(mouse.enabled&&mouse.steer>0.08),
+  agg:()=>!!(keys['a']||keys['A']),
+  // Mouse steer magnitude for smooth analog steering (0 if not enabled)
+  mouseSteer:()=>mouse.enabled?mouse.steer:0,
+};
+
+/* ── LAP HISTORY ─────────────────────────────────────────── */
+let showLapList=true;
+let lapHistory=[]; // last 5 completed lap times (seconds)
+// Toggle on L keypress
+addEventListener('keydown',e=>{
+  if(e.key==='l'||e.key==='L') showLapList=!showLapList;
+  if(e.key==='f'||e.key==='F') toggleFullscreen();
+});
+
+// Persistent best laps via localStorage (up to 5)
+function loadBestLaps(){
+  try{return JSON.parse(localStorage.getItem('kartBestLaps')||'[]');}catch(e){return [];}
+}
+function saveBestLap(t){
+  let bests=loadBestLaps();
+  bests.push(t);
+  bests.sort((a,b)=>a-b);
+  bests=bests.slice(0,5);
+  try{localStorage.setItem('kartBestLaps',JSON.stringify(bests));}catch(e){}
+  return bests;
+}
+let persistBests=loadBestLaps();
+
+const WORLD=9600;  // large world for expanded circuit
+const TW=420;
+const SF_FRAC=0.055; // S/F = meio da reta principal (esq→dir, heading 0°, x≈0.30)
+
+/* ── TRACK ─────────────────────────────────────────────────────────
+   Circuito profissional horário — 32 CPs, matematicamente verificado
+   sem auto-cruzamento (algoritmo CCW, todos os pares testados).
+
+   SENTIDO: reta ppal (esq→dir) → T1 dir sweeper (inf-dir) → lat dir →
+            CHICANE dir-esq (lado dir) → T3 esq hairpin (sup-dir) →
+            reta topo → T4 esq hairpin (sup-esq) → desce lat esq →
+            T5 dir hairpin INTERIOR (centro-esq) → T6 dir kink →
+            diagonal descida → junção na reta ppal
+
+   Curvas direita: T1 (inf-dir), T2 chicane (lat-dir), T5 int, T6 int = 4 dir
+   Curvas esquerda: T3 hairpin (sup-dir), T4 hairpin (sup-esq) = 2 esq
+
+   S/F: meio da reta ppal (frac≈0.10)
+   Zona interna aproveitada: T5+T6 interior (x=0.11–0.46, y=0.48–0.82)
+*/
+const CP_RAW=[
+  // ── RETA PRINCIPAL (baixo, esq→dir, y=0.88) ──────────────────
+  [0.05,0.88],[0.16,0.88],[0.58,0.88],
+  // ── Junção de retorno da seção interior ──────────────────────
+  [0.42,0.88],[0.56,0.88],[0.68,0.88],[0.80,0.88],
+  // ── T1: sweeper direita (canto inf-dir) ── DIR 1 ─────────────
+  [0.91,0.85],[0.87,0.72],[0.91,0.62],
+  // ── Reta lateral direita (sobe) ──────────────────────────────
+  [0.90,0.52],[0.88,0.44],
+  // ── T2: chicane direita (sub-hairpin, lat-dir) ── DIR 2 ──────
+  [0.92,0.36],[0.88,0.28],
+  // ── T3: hairpin esquerda (canto sup-dir) ─────────────────────
+  [0.80,0.18],[0.68,0.13],[0.56,0.15],
+  // ── Reta topo (dir→esq) ──────────────────────────────────────
+  [0.44,0.24],[0.32,0.14],[0.20,0.16],
+  // ── T4: hairpin esquerda (canto sup-esq) ─────────────────────
+  [0.10,0.24],[0.07,0.36],[0.09,0.48],
+  // ── Desce lateral esq até entrada do interior ────────────────
+  [0.11,0.54],
+  // ── T5: hairpin direita interior ── DIR 3 ────────────────────
+  //    (entra do esq, apex centro, sai p/ baixo-dir)
+  [0.10,0.75],[0.28,0.70],[0.28,0.60],[0.40,0.52],
+  // ── T6: kink direita (saída interna p/ baixo) ── DIR 4 ───────
+  [0.44,0.60],[0.46,0.70],
+  // ── Diagonal descida → junção com reta ppal ──────────────────
+  // NOTE: não repetir [0.05,0.88] aqui — o Catmull fechará o loop
+  // automaticamente pelo índice modular, evitando falsa detecção de S/F.
+  [0.02,0.87],
+
+];
+
+function catmull(p0,p1,p2,p3,t){
+  const t2=t*t,t3=t2*t;
+  return{
+    x:0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+    y:0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3),
+  };
+}
+
+const SSTEPS=4200;
+const centerline=[];
+const cpts=CP_RAW.map(p=>({x:p[0]*WORLD,y:p[1]*WORLD}));
+const NCP=cpts.length;
+for(let i=0;i<NCP-1;i++){
+  const p0=cpts[(i-1+NCP)%NCP],p1=cpts[i],p2=cpts[(i+1)%NCP],p3=cpts[(i+2)%NCP];
+  const st=Math.floor(SSTEPS/(NCP-1));
+  for(let s=0;s<st;s++) centerline.push(catmull(p0,p1,p2,p3,s/st));
+}
+centerline.push({...centerline[0]});
+const CLEN=centerline.length;
+
+const splineData=new Array(CLEN);
+for(let i=0;i<CLEN;i++){
+  const prev=centerline[(i-1+CLEN)%CLEN],next=centerline[(i+1)%CLEN];
+  const tx=next.x-prev.x,ty=next.y-prev.y;
+  const tl=Math.sqrt(tx*tx+ty*ty)+1e-9;
+  const tang={x:tx/tl,y:ty/tl};
+  const norm={x:-tang.y,y:tang.x};
+  const pp=centerline[(i-3+CLEN)%CLEN],pn=centerline[(i+3)%CLEN];
+  const t1x=centerline[i].x-pp.x,t1y=centerline[i].y-pp.y;
+  const t2x=pn.x-centerline[i].x,t2y=pn.y-centerline[i].y;
+  const cr=t1x*t2y-t1y*t2x,dtv=t1x*t2x+t1y*t2y;
+  const curv=Math.atan2(cr,dtv)*90;
+  const frac=i/CLEN;
+  // Base elevation wave + camber: outer edge higher (curv>0 → left turn → outer = +norm)
+  const elevBase=Math.sin(frac*Math.PI*2)*12+Math.sin(frac*Math.PI*7)*3;
+  // camber: scaled by curvature, represents lateral tilt (used by renderer)
+  const camber=Math.max(-1,Math.min(1,curv/4))*8; // +8 = banked left turn
+  const elev=elevBase+camber;
+  splineData[i]={tang,norm,curv,elev};
+}
+
+const arcLen=[0]; let totalLen=0;
+for(let i=1;i<CLEN;i++){
+  const dx=centerline[i].x-centerline[i-1].x,dy=centerline[i].y-centerline[i-1].y;
+  totalLen+=Math.sqrt(dx*dx+dy*dy); arcLen.push(totalLen);
+}
+
+/* ── S/F LINE GEOMETRY ────────────────────────────────────────────
+   Lap detection uses a signed-distance (dot product) test against
+   the world-space finish line — immune to duplicate spline sections.
+   Crossing counts when the kart moves from the "behind" side to the
+   "ahead" side of the line, with lapTime > 8 s guard.
+────────────────────────────────────────────────────────────────── */
+const _sfGeoIdx=Math.floor(CLEN*SF_FRAC);
+const SF_X=centerline[_sfGeoIdx].x, SF_Y=centerline[_sfGeoIdx].y;
+const SF_TX=splineData[_sfGeoIdx].tang.x, SF_TY=splineData[_sfGeoIdx].tang.y;
+// Detection normal = tangent (direction of travel).
+// A crossing fires when kart moves from "behind" (dot<0) to "ahead" (dot≥0).
+// The visual line is drawn perpendicular to travel using SF_LINEX/Y (below).
+const SF_NX=SF_TX, SF_NY=SF_TY;           // forward = detection normal
+const SF_LINEX=-SF_TY, SF_LINEY=SF_TX;    // perpendicular = visual line direction
+
+/* ── SECTOR CHECKPOINTS ───────────────────────────────────────────
+   Two mandatory checkpoints that must be crossed (in order) before
+   the S/F line counts a lap.  Prevents shortcutting through grass.
+   Same dot-product plane-crossing logic as the S/F line.
+     CP1 (~45%): top section, after T3 right hairpin
+     CP2 (~75%): interior section, exiting T5 hairpin
+────────────────────────────────────────────────────────────────── */
+  const CP1_FRAC=0.45, CP2_FRAC=0.85;
+function _mkCP(frac){
+  const idx=Math.floor(CLEN*frac);
+  const t=splineData[idx].tang;
+  // nx/ny = detection normal (forward = tang)
+  // lx/ly = line direction (perpendicular = visual)
+  return {x:centerline[idx].x, y:centerline[idx].y,
+          nx:t.x, ny:t.y,         // forward
+          lx:-t.y, ly:t.x,        // perpendicular (for visual + lateral guard)
+          idx};
+}
+const CP1=_mkCP(CP1_FRAC);
+const CP2=_mkCP(CP2_FRAC);
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BARREIRAS DE PNEUS — Definição, aparência e colisão
+   ═══════════════════════════════════════════════════════════════════════
+
+   Cada objeto em BARRIERS define uma barreira independente.
+   Edite os campos abaixo para ajustar posição, tamanho e visual.
+
+   ── POSIÇÃO ──────────────────────────────────────────────────────────
+   cx, cy       Centro da barreira em coordenadas normalizadas (0.0–1.0).
+                Referência: reta principal fica em y≈0.88.
+                A junção diagonal→reta fica em x≈0.05-0.15, y≈0.86-0.90.
+
+   angleDeg     Ângulo de rotação em graus (0° = horizontal, 90° = vertical).
+                Use 158° para alinhar com a diagonal de descida.
+                Use 8° para a barreira interna levemente inclinada.
+
+   ── TAMANHO ──────────────────────────────────────────────────────────
+   cols         Colunas de pneus (comprimento da barreira).
+                Mais colunas = barreira mais longa.
+   rows         Pneus empilhados por coluna (altura/volume).
+                5 = barreira sólida com 5 pneus de altura.
+   tyreR        Raio de cada pneu em pixels mundo (padrão 38 ≈ 0.004×WORLD).
+                Aumente para pneus maiores e barreira mais grossa.
+   gap          Espaço extra em px entre colunas. 0 = colunas se tocam.
+
+   ── CURVATURA ────────────────────────────────────────────────────────
+   curve        Curvatura da barreira (0 = reta, positivo = arqueada para frente).
+                Cada coluna é deslocada transversalmente por:
+                  offset = curve × (col_index − cols/2)²
+                Valores típicos: 0 (reta), 0.5 (leve), 2.0 (bastante curvada).
+
+   ── CORES ────────────────────────────────────────────────────────────
+   colA         Cor dos pneus do primeiro grupo (CSS hex/rgb).
+   colB         Cor alternada dos pneus (segunda fileira). Cria variação visual.
+   rimCol       Cor do aro metálico central.
+   bandCol      Cor da faixa de aviso sobre a barreira (vermelho/laranja típico).
+
+   ── COLISÃO ──────────────────────────────────────────────────────────
+   margin       Margem extra de empurramento além do raio físico (px).
+                Aumente para resposta mais "macia"; reduza para mais precisa.
+   restitution  Elasticidade do ricochete (0 = absorve, 1 = elástico total).
+                Padrão 0.25 = pneus absorvem a maior parte do impacto.
+
+   ── REFERÊNCIAS DE POSIÇÃO ───────────────────────────────────────────
+     Reta principal:          y≈0.880, x: 0.05 (esq.) → 0.80 (dir.)
+     Junção diagonal→reta:    x≈0.05-0.15, y≈0.862-0.905
+     Borda interna do "V":    x≈0.09-0.18, y≈0.885-0.910
+     Área de escape exterior: x≈0.18-0.30, y≈0.840-0.875
+   ═══════════════════════════════════════════════════════════════════════ */
+const BARRIERS = [
+
+  /* ── BARREIRA A ── ângulo fechado interno (bolso do "V")
+     Fica na grama entre a descida diagonal e a reta principal.
+     Ângulo levemente inclinado para seguir o formato do "V". */
+  {
+    cx: 0.300,   cy: 0.849,   // posição normalizada (0-1)
+    angleDeg: -2,              // graus — leve inclinação seguindo o V
+    cols: 70,                  // 7 colunas = barreira comprida
+    rows: 1,                  // 5 pneus de altura
+    tyreR: 23,                // raio do pneu em pixels mundo
+    gap: 1,                   // espaço entre colunas (px)
+    curve: 0.0,               // curvatura suave (arqueada levemente)
+    colA:    '#181818',       // cor principal dos pneus
+    colB:    '#2a2a2a',       // cor alternada
+    rimCol:  '#909090',       // aro metálico
+    bandCol: '#dd1100',       // faixa de aviso vermelha
+    margin: 20,               // margem de colisão (px)
+    restitution: 0.25,        // elasticidade do impacto
+  },
+    /* ── BARREIRA A-1 (menor)── ângulo fechado interno (bolso do "V")
+     Fica na grama entre a descida diagonal e a reta principal.
+     Ângulo levemente inclinado para seguir o formato do "V". */
+  {
+    cx: 0.125,   cy: 0.856,   // posição normalizada (0-1)
+    angleDeg: -2,              // graus — leve inclinação seguindo o V
+    cols: 2,                  // 7 colunas = barreira comprida
+    rows: 1,                  // 5 pneus de altura
+    tyreR: 11,                // raio do pneu em pixels mundo
+    gap: 1,                   // espaço entre colunas (px)
+    curve: 0.0,               // curvatura suave (arqueada levemente)
+    colA:    '#181818',       // cor principal dos pneus
+    colB:    '#2a2a2a',       // cor alternada
+    rimCol:  '#909090',       // aro metálico
+    bandCol: '#dd1100',       // faixa de aviso vermelha
+    margin: 20,               // margem de colisão (px)
+    restitution: 0.55,        // elasticidade do impacto
+  },
+  /* ── BARREIRA B ── área de escape exterior da curva
+     Fica no lado de fora da diagonal, na zona de runoff.
+     Paralela à diagonal (~158°) para bloquear atalhos. */
+  {
+    cx: 0.,   cy: 0.884,
+    angleDeg: -97,            // paralela à diagonal de descida
+    cols: 27,                  // 8 colunas = barreira ligeiramente mais longa
+    rows: 1,
+    tyreR: 38,
+    gap: 1,
+    curve: 0.7,               // leve arqueamento
+    colA:    '#181818',
+    colB:    '#2a2a2a',
+    rimCol:  '#909090',
+    bandCol: '#ff8800',       // faixa laranja (diferencia da barreira A)
+    margin: 20,
+    restitution: 0.25,
+  },
+];
+
+/* ── Pré-computação de geometria OBB das barreiras ──────────────────
+   Para cada barreira gera:
+   - eixos locais (ax/ay = longitudinal, nx/ny = normal/transversal)
+   - lista de centros de cada coluna no espaço mundo (para pintura e colisão)
+   - half-extents para teste OBB eficiente
+──────────────────────────────────────────────────────────────────── */
+(function buildBarriers() {
+  BARRIERS.forEach(b => {
+    const rad = b.angleDeg * Math.PI / 180;
+    b.cos = Math.cos(rad);  b.sin = Math.sin(rad);
+    b.ax  =  b.cos;  b.ay  =  b.sin;   // eixo longitudinal
+    b.nx  = -b.sin;  b.ny  =  b.cos;   // eixo normal (transversal)
+    b.wx  =  b.cx * WORLD;
+    b.wy  =  b.cy * WORLD;
+
+    const colStride = b.tyreR * 2 + b.gap;
+    const halfLen   = colStride * (b.cols - 1) / 2;
+
+    // Centros de cada coluna no espaço mundo (com curvatura aplicada)
+    b.colCenters = [];
+    for (let c = 0; c < b.cols; c++) {
+      const t   = c - (b.cols - 1) / 2;          // posição relativa central
+      const lng = t * colStride;                  // deslocamento longitudinal
+      const crv = b.curve * t * t;               // deslocamento por curvatura
+      const wx  = b.wx + b.ax * lng + b.nx * crv;
+      const wy  = b.wy + b.ay * lng + b.ny * crv;
+      b.colCenters.push({ wx, wy });
+    }
+
+    // OBB conservadora cobrindo toda a barreira (para broad-phase)
+    b.halfLong  = colStride * b.cols / 2 + b.tyreR;
+    b.halfShort = b.tyreR * b.rows + b.margin;
+  });
+})();
+
+/* ── COLISÃO: empurra o kart para fora de cada coluna ───────────────
+   Chamada logo após atualizar kart.x / kart.y na física.
+   Usa teste círculo-vs-OBB por coluna (preciso e independente da curvatura).
+──────────────────────────────────────────────────────────────────── */
+function resolveBarrierCollisions() {
+  const KART_R = 55; // raio de colisão do kart em pixels mundo
+
+  BARRIERS.forEach(b => {
+    // Broad-phase: OBB whole barrier
+    const dx0 = kart.x - b.wx, dy0 = kart.y - b.wy;
+    const projL = dx0 * b.ax + dy0 * b.ay;
+    const projN = dx0 * b.nx + dy0 * b.ny;
+    if (Math.abs(projL) > b.halfLong + KART_R)  return;
+    if (Math.abs(projN) > b.halfShort + KART_R) return;
+
+    // Narrow-phase: per-column circle vs slab test
+    b.colCenters.forEach(col => {
+      // Project kart relative to column centre onto barrier axes
+      const dx = kart.x - col.wx, dy = kart.y - col.wy;
+      // Longitudinal: clamp to half column width
+      const pA = dx * b.ax + dy * b.ay;
+      const pN = dx * b.nx + dy * b.ny;
+      const cA = Math.max(-b.tyreR, Math.min(b.tyreR, pA));
+      // Nearest point on column slab to kart
+      const nearX = col.wx + b.ax * cA + b.nx * pN;
+      const nearY = col.wy + b.ay * cA + b.ny * pN;
+      // Wait — nearest point on the column in normal direction
+      const cN = Math.max(-(b.tyreR * b.rows + b.margin),
+                           Math.min(b.tyreR * b.rows + b.margin, pN));
+      const npx = col.wx + b.ax * cA + b.nx * cN;
+      const npy = col.wy + b.ay * cA + b.ny * cN;
+      const edx = kart.x - npx, edy = kart.y - npy;
+      const dist2 = edx * edx + edy * edy;
+      const minDist = KART_R + b.margin;
+      if (dist2 < minDist * minDist && dist2 > 0.01) {
+        const dist = Math.sqrt(dist2);
+        const pen  = minDist - dist;
+        const enx  = edx / dist, eny = edy / dist; // outward normal
+        // Push kart out
+        kart.x += enx * pen;
+        kart.y += eny * pen;
+        // Reflect velocity component along normal (damped by restitution)
+        const vn = kart.speed * Math.cos(kart.heading) * enx
+                 + kart.speed * Math.sin(kart.heading) * eny;
+        if (vn < 0) {
+          const absVn = Math.abs(vn);
+          kart.speed    = Math.max(0, kart.speed * (1 - absVn / (kart.speed + 0.01) * (1 - b.restitution)));
+          kart.yawRate *= 0.6;
+          kart.latVel  *= 0.5;
+          // signal impact magnitude to audio system (keep peak per frame)
+          kart.impactForce = Math.max(kart.impactForce, absVn * kart.speed * 0.05);
+        }
+      }
+    });
+  });
+}
+
+/* ── PINTURA das barreiras na textura de pista ──────────────────────
+   Chamada dentro de buildTrack(), antes do getImageData.
+   Cada pneu é desenhado como círculo empilhado em cada coluna.
+──────────────────────────────────────────────────────────────────── */
+function paintBarriers(ctx) {
+  BARRIERS.forEach(b => {
+    b.colCenters.forEach((col, ci) => {
+      for (let row = 0; row < b.rows; row++) {
+        const rowOff = (row - (b.rows - 1) / 2) * (b.tyreR * 2 + 1);
+        const cx = col.wx + b.nx * rowOff;
+        const cy = col.wy + b.ny * rowOff;
+
+        // Outer tyre body
+        ctx.beginPath();
+        ctx.arc(cx, cy, b.tyreR, 0, Math.PI * 2);
+        ctx.fillStyle = (ci + row) % 2 === 0 ? b.colA : b.colB;
+        ctx.fill();
+
+        // Tyre wall highlight (top arc for 3-D effect)
+        ctx.beginPath();
+        ctx.arc(cx, cy, b.tyreR, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 5;
+        ctx.stroke();
+
+        // Rim (inner circle)
+        ctx.beginPath();
+        ctx.arc(cx, cy, b.tyreR * 0.44, 0, Math.PI * 2);
+        ctx.fillStyle = b.rimCol;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy, b.tyreR * 0.22, 0, Math.PI * 2);
+        ctx.fillStyle = '#222';
+        ctx.fill();
+      }
+    });
+
+    // Warning band across top of barrier
+    const halfL = (b.tyreR * 2 + b.gap) * (b.cols - 1) / 2;
+    const p0x   = b.colCenters[0].wx            - b.nx * (b.tyreR * b.rows * 0.5);
+    const p0y   = b.colCenters[0].wy            - b.ny * (b.tyreR * b.rows * 0.5);
+    const p1x   = b.colCenters[b.cols - 1].wx   - b.nx * (b.tyreR * b.rows * 0.5);
+    const p1y   = b.colCenters[b.cols - 1].wy   - b.ny * (b.tyreR * b.rows * 0.5);
+    ctx.strokeStyle = b.bandCol;
+    ctx.lineWidth   = 14;
+    ctx.setLineDash([36, 22]);
+    ctx.beginPath();
+    ctx.moveTo(p0x, p0y);
+    ctx.lineTo(p1x, p1y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth   = 3;
+    ctx.beginPath();
+    ctx.moveTo(p0x, p0y);
+    ctx.lineTo(p1x, p1y);
+    ctx.stroke();
+  });
+}
+
+/* ── KERB ASSIGNMENT ─────────────────────────────────────────── */
+function mulberry32(seed){
+  let a=seed;
+  return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};
+}
+const rng=mulberry32(0xCAFEBABE);
+
+// kerbSeg[i]: {outerSign:+1|-1, type:'rb'|'bw', inner:bool} | null
+// outerSign: +1 means outer kerb is in the +norm direction, -1 in -norm
+const kerbSeg=new Array(CLEN).fill(null);
+
+(function assignKerbs(){
+  /* 1. Smooth curvature to find stable segment zones */
+  const SM=new Float32Array(CLEN);
+  const SW=18;
+  for(let i=0;i<CLEN;i++){
+    let s=0; for(let d=-SW;d<=SW;d++) s+=splineData[(i+d+CLEN)%CLEN].curv;
+    SM[i]=s/(2*SW+1);
+  }
+
+  /* 2. Extract segments — each has a peak (signed) curvature */
+  const THRESH=1.5;
+  const APPROACH=65, EXIT=65;
+  let seg=null;
+  const segs=[];
+  for(let i=0;i<CLEN;i++){
+    const c=SM[i];
+    if(Math.abs(c)>THRESH){
+      if(!seg) seg={s:i,e:i,peakC:c,peak:i,sign:Math.sign(c)};
+      else {
+        seg.e=i;
+        if(Math.abs(c)>Math.abs(seg.peakC)){seg.peakC=c;seg.peak=i;}
+      }
+    } else {
+      if(seg){segs.push(seg);seg=null;}
+    }
+  }
+  if(seg) segs.push(seg);
+
+  /* 3. Assign kerbs using the SEGMENT sign (frozen, no per-point flip)
+     outerSign: when curv<0 (right turn) outer is +norm (+1)
+                when curv>0 (left turn)  outer is -norm (-1)               */
+  for(const sg of segs){
+    const outerSign = sg.sign<0 ? 1 : -1;
+    const t = rng()<0.6?'rb':'bw';
+    const os=Math.max(0,sg.s-APPROACH);
+    const oe=Math.min(CLEN-1,sg.e+EXIT);
+    // inner only at tightest 50% of apex, and only for significant curves
+    const hw=Math.max(0,Math.floor((sg.e-sg.s)*0.25));
+    const is=Math.max(0,sg.peak-hw), ie=Math.min(CLEN-1,sg.peak+hw);
+    for(let i=os;i<=oe;i++){
+      if(!kerbSeg[i]) kerbSeg[i]={outerSign,type:t,inner:false};
+    }
+    for(let i=is;i<=ie;i++){
+      if(kerbSeg[i]) kerbSeg[i].inner=true;
+    }
+  }
+
+  /* 4. No special-case overrides needed — general segment detection handles all curves */
+})();
+
+/* ── TRACK TEXTURE ───────────────────────────────────────────── */
+const trackCv=document.createElement('canvas');
+trackCv.width=trackCv.height=WORLD;
+const tctx=trackCv.getContext('2d');
+
+(function buildTrack(){
+  const gg=tctx.createRadialGradient(WORLD/2,WORLD/2,500,WORLD/2,WORLD/2,WORLD*0.8);
+  gg.addColorStop(0,'#2e7d1f');gg.addColorStop(1,'#1a5010');
+  tctx.fillStyle=gg;tctx.fillRect(0,0,WORLD,WORLD);
+  for(let i=0;i<60000;i++){
+    tctx.fillStyle=`rgba(0,${Math.random()>.5?18:0},0,0.04)`;
+    tctx.fillRect(Math.random()*WORLD,Math.random()*WORLD,3,3);
+  }
+  tctx.lineWidth=TW;tctx.strokeStyle='#393939';
+  tctx.lineCap='round';tctx.lineJoin='round';
+  tctx.beginPath();
+  tctx.moveTo(centerline[0].x,centerline[0].y);
+  for(let i=1;i<CLEN;i++) tctx.lineTo(centerline[i].x,centerline[i].y);
+  tctx.closePath();tctx.stroke();
+  tctx.globalAlpha=0.035;
+  for(let i=0;i<20000;i++){
+    tctx.fillStyle=Math.random()>.5?'#fff':'#000';
+    tctx.fillRect(Math.random()*WORLD,Math.random()*WORLD,1,1);
+  }
+  tctx.globalAlpha=1;
+
+  /* ── ASPHALT TEXTURE: concrete patches + rubber stains ──── */
+  const rng2=mulberry32(0xDEADBEEF);
+
+  // 1. Concrete / tarmac repair patches — grey irregular rectangles
+  tctx.globalAlpha=0.22;
+  for(let i=0;i<CLEN;i+=14){
+    if(rng2()>0.55) continue; // sparse
+    const pt=centerline[i];
+    const tang=splineData[i].tang;
+    const ang=Math.atan2(tang.y,tang.x)+(rng2()-0.5)*0.4;
+    const pw=40+rng2()*120, ph=18+rng2()*40;
+    // offset sideways within track
+    const off=(rng2()-0.5)*140;
+    const nm=splineData[i].norm;
+    const cx2=pt.x+nm.x*off, cy2=pt.y+nm.y*off;
+    // Grey tones: light concrete to dark tarmac repair
+    const g=Math.floor(60+rng2()*55);
+    tctx.fillStyle=`rgb(${g},${g},${g-4})`;
+    tctx.save();
+    tctx.translate(cx2,cy2); tctx.rotate(ang);
+    tctx.fillRect(-pw/2,-ph/2,pw,ph);
+    // Slightly lighter inner highlight (makes it look raised)
+    const g2=Math.min(255,g+12);
+    tctx.fillStyle=`rgba(${g2},${g2},${g2},0.5)`;
+    tctx.fillRect(-pw/2+2,-ph/2+2,pw-4,2);
+    tctx.restore();
+  }
+
+  // 2. Rubber build-up ovals at braking / cornering zones
+  tctx.globalAlpha=0.18;
+  tctx.fillStyle='#141414';
+  for(let i=0;i<CLEN;i+=7){
+    const cv=Math.abs(splineData[i].curv);
+    if(cv>1.6){
+      const pt=centerline[i];
+      tctx.save();
+      tctx.translate(pt.x,pt.y);
+      tctx.rotate(Math.atan2(splineData[i].tang.y,splineData[i].tang.x));
+      tctx.scale(5,1);
+      tctx.beginPath(); tctx.arc(0,0,20,0,Math.PI*2); tctx.fill();
+      tctx.restore();
+    }
+  }
+
+  tctx.globalAlpha=1;
+
+  // ── KERB DRAWING ─────────────────────────────────────────────
+  // Uses kerbSeg[i].outerSign (segment-level, not per-point curv sign)
+  for(let i=0;i<CLEN;i+=2){
+    const ks=kerbSeg[i]; if(!ks) continue;
+    const pt=centerline[i], nm=splineData[i].norm, tg=splineData[i].tang;
+    const ang=Math.atan2(tg.y,tg.x);
+    const stripe=Math.floor(i/5)%2;
+    const isRb=ks.type==='rb';
+
+    // OUTER kerb — always on the grass outside the curve
+    {
+      const KW=isRb?22:13, KL=80;
+      const ox=pt.x+nm.x*ks.outerSign*(TW*0.476);
+      const oy=pt.y+nm.y*ks.outerSign*(TW*0.476);
+      tctx.save(); tctx.translate(ox,oy); tctx.rotate(ang);
+      tctx.fillStyle=isRb?(stripe?'#cc1010':'#f0f0f0'):(stripe?'#1144bb':'#f0f0f0');
+      tctx.fillRect(-KL/2,-KW/2,KL,KW);
+      if(isRb&&stripe){tctx.fillStyle='#ff2222';tctx.fillRect(-KL/2,-KW/2,KL,5);}
+      tctx.restore();
+    }
+    // INNER apex kerb — only at tightest apex, opposite side (grass inside)
+    if(ks.inner){
+      const KW=11, KL=62;
+      const ix=pt.x+nm.x*(-ks.outerSign)*(TW*0.464);
+      const iy=pt.y+nm.y*(-ks.outerSign)*(TW*0.464);
+      tctx.save(); tctx.translate(ix,iy); tctx.rotate(ang);
+      tctx.fillStyle=stripe?'#1155cc':'#f0f0f0';
+      tctx.fillRect(-KL/2,-KW/2,KL,KW);
+      tctx.restore();
+    }
+  }
+
+  // S/F line at mid-main-straight (frac≈0.08)
+  // S/F line — position driven by SF_FRAC (same as spawn + lap detection)
+  const sfIdx=Math.floor(CLEN*SF_FRAC);
+  const sf=centerline[sfIdx],sfN=splineData[sfIdx].norm,sfT=splineData[sfIdx].tang;
+  for(let b=0;b<20;b++){
+    const bxx=sf.x+sfN.x*(b-10)*24,byy=sf.y+sfN.y*(b-10)*24;
+    tctx.fillStyle=b%2?'#ffffff':'#111111';
+    tctx.save();tctx.translate(bxx,byy);
+    tctx.rotate(Math.atan2(sfT.y,sfT.x));
+    tctx.fillRect(-16,-14,32,28);
+    tctx.restore();
+  }
+  // Bright orange S/F line
+  tctx.strokeStyle='#ff8800';tctx.lineWidth=8;
+  tctx.beginPath();
+  tctx.moveTo(sf.x+sfN.x*(-10*24),sf.y+sfN.y*(-10*24));
+  tctx.lineTo(sf.x+sfN.x*(10*24),sf.y+sfN.y*(10*24));
+  tctx.stroke();
+
+  // ── Sector checkpoint lines ──────────────────────────────────────
+  // Drawn PERPENDICULAR to travel (using lx/ly = cross-track direction),
+  // matching exactly how the S/F zebra is drawn with sfN.
+  [CP1,CP2].forEach(function(cp,ci){
+    // lx/ly is the perpendicular-to-travel direction — the visible line
+    const lx=cp.lx, ly=cp.ly;
+    // Zebra blocks like S/F
+    for(let b=0;b<16;b++){
+      const bx=cp.x+lx*(b-8)*26, by=cp.y+ly*(b-8)*26;
+      tctx.fillStyle=b%2?'rgba(0,220,255,0.90)':'rgba(0,80,120,0.70)';
+      tctx.save();
+      tctx.translate(bx,by);
+      tctx.rotate(Math.atan2(cp.ny,cp.nx)); // rotate to travel direction
+      tctx.fillRect(-14,-13,28,26);
+      tctx.restore();
+    }
+    // Bright cyan centre line
+    tctx.strokeStyle=ci===0?'rgba(0,255,200,0.95)':'rgba(255,200,0,0.95)';
+    tctx.lineWidth=7;
+    tctx.beginPath();
+    tctx.moveTo(cp.x+lx*(-8*26), cp.y+ly*(-8*26));
+    tctx.lineTo(cp.x+lx*( 8*26), cp.y+ly*( 8*26));
+    tctx.stroke();
+    // Label
+    tctx.fillStyle=ci===0?'#00ffc8':'#ffc800';
+    tctx.font='bold 140px monospace';
+    tctx.fillText('S'+(ci+1), cp.x+lx*8*26+cp.nx*60, cp.y+ly*8*26+cp.ny*60);
+  });
+
+  // Paint tyre barriers onto the track texture
+  paintBarriers(tctx);
+})();
+
+const trackPx=tctx.getImageData(0,0,WORLD,WORLD).data;
+function samplePx(wx,wy){
+  const ix=((wx|0)%WORLD+WORLD)%WORLD,iy=((wy|0)%WORLD+WORLD)%WORLD;
+  const id=(iy*WORLD+ix)*4;
+  return{r:trackPx[id],g:trackPx[id+1],b:trackPx[id+2]};
+}
+function isRoad(wx,wy){const c=samplePx(wx,wy);return c.g<125&&Math.abs(c.r-c.g)<30;}
+function isRedKerb(wx,wy){const c=samplePx(wx,wy);return c.r>145&&c.g<75&&c.b<75;}
+function isBlueKerb(wx,wy){const c=samplePx(wx,wy);return c.b>125&&c.r<75&&c.g<90;}
+
+/* ── MINIMAP ─────────────────────────────────────────────────── */
+const MM_W=96,MM_H=72;
+const mmCv=document.createElement('canvas');mmCv.width=MM_W;mmCv.height=MM_H;
+const mctx=mmCv.getContext('2d');
+let mmMinX=1e9,mmMaxX=-1e9,mmMinY=1e9,mmMaxY=-1e9;
+for(let i=0;i<CLEN;i++){
+  if(centerline[i].x<mmMinX)mmMinX=centerline[i].x;
+  if(centerline[i].x>mmMaxX)mmMaxX=centerline[i].x;
+  if(centerline[i].y<mmMinY)mmMinY=centerline[i].y;
+  if(centerline[i].y>mmMaxY)mmMaxY=centerline[i].y;
+}
+const mmRX=mmMaxX-mmMinX,mmRY=mmMaxY-mmMinY;
+const MM_PAD=6;
+const mmScale=Math.min((MM_W-MM_PAD*2)/mmRX,(MM_H-MM_PAD*2)/mmRY);
+const mmOX=MM_W/2-(mmMinX+mmRX/2)*mmScale;
+const mmOY=MM_H/2-(mmMinY+mmRY/2)*mmScale;
+// Direct world → minimap (no flipping needed)
+function toMM(wx,wy){return{x:wx*mmScale+mmOX,y:wy*mmScale+mmOY};}
+
+(function buildMinimap(){
+  mctx.clearRect(0,0,MM_W,MM_H);
+  mctx.beginPath();
+  let mp=toMM(centerline[0].x,centerline[0].y);
+  mctx.moveTo(mp.x,mp.y);
+  for(let i=2;i<CLEN;i+=3){mp=toMM(centerline[i].x,centerline[i].y);mctx.lineTo(mp.x,mp.y);}
+  mctx.closePath();
+  mctx.strokeStyle='#555';mctx.lineWidth=4;mctx.stroke();
+  mctx.strokeStyle='#aaa';mctx.lineWidth=1.5;mctx.stroke();
+  // S/F marker at mid-straight (frac≈0.08)
+  const sfIdx2=Math.floor(CLEN*SF_FRAC);
+  const sfm=toMM(centerline[sfIdx2].x,centerline[sfIdx2].y);
+  mctx.fillStyle='#ff8800';mctx.fillRect(sfm.x-3,sfm.y-4,6,8);
+})();
+
+/* ── SPLINE SEARCH ───────────────────────────────────────────── */
+let splineIdx=0;
+function findSpline(wx,wy){
+  let best=1e18,bi=splineIdx;
+  for(let di=-120;di<=120;di++){
+    const i=(splineIdx+di+CLEN)%CLEN;
+    const dx=centerline[i].x-wx,dy=centerline[i].y-wy;
+    const d=dx*dx+dy*dy;
+    if(d<best){best=d;bi=i;}
+  }
+  splineIdx=bi;return bi;
+}
+
+/* ── TEMPERATURE SYSTEM ──────────────────────────────────────── */
+const TYRE_OPT_MIN=72,TYRE_OPT_MAX=92,TYRE_MAX=118;
+const BRAKE_OPT=280,BRAKE_MAX=600;
+
+const tmp={fl:30,fr:30,rl:30,rr:30,brake:50,tyreGrip:0.48,brakeEff:0.40};
+
+function updateTemps(dt,kart){
+  const spd=kart.speed;
+  const spdN=Math.min(1,spd/28);
+
+  // Tyre: heat from lateral + brake + throttle
+  const latH=Math.abs(kart.yawRate)*spd*2.6;
+  const brkH=kart.brakePedal*spd*4.0;
+  const accH=kart.accelPedal*spd*0.9;
+  const cool=0.68*dt;
+
+  tmp.rl=Math.min(TYRE_MAX,Math.max(18,tmp.rl+(latH*0.55+brkH*0.25+accH)*dt-cool));
+  tmp.rr=Math.min(TYRE_MAX,Math.max(18,tmp.rr+(latH*0.55+brkH*0.25+accH)*dt-cool));
+  tmp.fl=Math.min(TYRE_MAX,Math.max(18,tmp.fl+(latH*0.35+brkH*0.45)*dt-cool*0.9));
+  tmp.fr=Math.min(TYRE_MAX,Math.max(18,tmp.fr+(latH*0.35+brkH*0.45)*dt-cool*0.9));
+
+  // Brake: ONLY heats at speed — gate below ~5 m/s ≈ 0 heat
+  const speedGate=Math.pow(Math.max(0,(spdN-0.12)/0.88),1.8);
+  const brakeHeat=kart.brakePedal*spd*speedGate*200*dt;
+  const brakeCool=(10+spdN*65)*dt;
+  tmp.brake=Math.min(BRAKE_MAX,Math.max(28,tmp.brake+brakeHeat-brakeCool));
+
+  // Tyre grip from average
+  const avg=(tmp.fl+tmp.fr+tmp.rl+tmp.rr)/4;
+  let tg;
+  if(avg<TYRE_OPT_MIN)       tg=0.42+0.58*Math.min(1,(avg-18)/(TYRE_OPT_MIN-18));
+  else if(avg<=TYRE_OPT_MAX) tg=1.0;
+  else                        tg=1.0-0.40*Math.min(1,(avg-TYRE_OPT_MAX)/(TYRE_MAX-TYRE_OPT_MAX));
+  tmp.tyreGrip=tg;
+
+  // Brake effectiveness: near zero cold, peak at opt, fade hot
+  if(tmp.brake<90)             tmp.brakeEff=0.22+0.55*(tmp.brake/90);
+  else if(tmp.brake<BRAKE_OPT) tmp.brakeEff=0.77+0.23*((tmp.brake-90)/(BRAKE_OPT-90));
+  else if(tmp.brake<BRAKE_MAX) tmp.brakeEff=1.0-0.58*((tmp.brake-BRAKE_OPT)/(BRAKE_MAX-BRAKE_OPT));
+  else                          tmp.brakeEff=0.42;
+}
+
+/* ── PHYSICS CONSTANTS ───────────────────────────────────────── */
+const PHY={
+  // ── IAME Parilla X30 125cc — especificações reais ─────────────────
+  // Massa total piloto+kart: ~165 kg
+  // Potência de pico: ~33 cv @ 13 000 rpm (≈24.6 kW)
+  // Torque máx no eixo: ~18 Nm @ 11 000 rpm
+  // Velocidade máxima: 140 km/h = 38.89 m/s (pinhão padrão CIK)
+  mass:165, wheelbase:1.05, cgBias:0.42,
+
+  // X30: idle real ≈ 3 200 rpm (2T não sustenta abaixo disso)
+  // Power band real: 9 500–13 500 rpm  |  Redline: 13 500 rpm
+  maxRPM:13500, idleRPM:3200, peakRPM:11000,
+
+  // Torque no código: engineF = torq*(8.5/0.13)
+  // Para terminal 140 km/h: F_engine ≈ 1 100 N → torq ≈ 16.8 Nm ✓
+  maxTorque:28,    // calibrado para 0-100km/h em ~5.5s (X30 real ~4-4.5s com piloto expert)
+
+  // rpmPerSpd: 13 500 rpm / 38.89 m/s = 347 rpm por m/s
+  rpmPerSpd:347,
+
+  brakeMax:32, brakeLockRisk:0.80,
+  steerSens:0.38, steerMax:0.20,
+  steerReturn:0.88,
+  muPeak:1.65,
+  gripAsphalt:1.0, gripRedKerb:0.50, gripBlueKerb:0.75, gripGrass:0.24,
+
+  // Arrasto calibrado: F_drag(38.89 m/s) ≈ F_engine_max
+  // dragK*v²*mass + rollRes = 1100 N  →  dragK ≈ 0.0044
+  dragK:0.0044, rollRes:4.2,
+
+  Iz:18.0, yawDampFrac:0.68,
+  Cf:12000, Cr:11000,
+};
+
+function engineTorque(rpm){
+  // IAME Parilla X30 125cc — curva de torque realista e jogável
+  //
+  // Problema da versão anterior: gaussiana com largura=3000 centrada em 11000rpm
+  // dava torque QUASE ZERO em 3200rpm (idle):
+  //   n = (3200-11000)/3000 = -2.6  →  exp(-3.38) = 0.034  →  3.4% do pico
+  //   EngineF = 37 N  →  aceleração ≈ 0.2 m/s² (imperceptível)
+  //
+  // Solução: gaussiana mais larga (WIDTH=5500) garante torque usável
+  // desde o idle até o redline, mantendo o "hit" do power-band no topo.
+  //
+  //   3 200 rpm (idle) → 10.2 Nm → 670 N → 4.0 m/s²   ✓ arranca bem
+  //   8 500 rpm        → 25.8 Nm → 1688 N               ✓ power band sente
+  //  11 000 rpm (peak) → 28.0 Nm → 1830 N               ✓ pico real X30
+  //  13 500 rpm        → 23.7 Nm → 1550 N               ✓ mantém empuxo
+  //
+  //  0–100 km/h: ~5.5 s   |   Vmax terminal: ~144 km/h ✓
+  const n=(rpm-PHY.peakRPM)/5500;                       // largura 5500 (antes: 3000)
+  const base=PHY.maxTorque*Math.exp(-n*n*0.5);
+  if(rpm<PHY.idleRPM) return base*(rpm/PHY.idleRPM);
+  // Shoulder secundário em ~8500 rpm (pré-power-band, típico do X30)
+  return base*(1.0+0.10*Math.exp(-Math.pow((rpm-8500)/1500,2)));
+}
+
+/* ── KART STATE ──────────────────────────────────────────────── */
+// SF_FRAC: single source of truth for S/F line, spawn, and lap detection
+// Spawn sits just upstream so the kart crosses the line at the very start
+// SF_FRAC declared near top. SPAWN_IDX uses it here.
+const SPAWN_IDX=Math.floor(CLEN*0.035); // just before S/F on main straight (heading 0°)
+const kart={
+  x:centerline[SPAWN_IDX].x,y:centerline[SPAWN_IDX].y,
+  heading:Math.atan2(splineData[SPAWN_IDX].tang.y,splineData[SPAWN_IDX].tang.x),
+  speed:0,
+  steerAngle:0,
+  accelPedal:0,brakePedal:0,
+  slipstream:0,
+  yawRate:0,
+  latVel:0,
+  tyreSlipF:0,tyreSlipR:0,
+  gripLevel:1,
+  powerslide:false,
+  // traction loss state — front vs rear
+  slideF:0,         // front slip (understeer) accumulator 0-1
+  slideR:0,         // rear slip  (oversteer)  accumulator 0-1
+  onRoad:true,onRedKerb:false,onBlueKerb:false,
+  kerbBounce:0,
+  stamina:1,
+  rpm:800,
+  elev:0,elevVel:0,
+  splineIdx:SPAWN_IDX,trackFrac:0,lastFrac:0.035,
+  // Gate dot signs: computed from spawn position relative to each gate.
+  // Sign = -1 means kart is "behind" gate (has not yet crossed it).
+  // We initialize from geometry so the first real crossing fires correctly.
+  sfLastDot:(centerline[SPAWN_IDX].x-SF_X)*SF_NX+(centerline[SPAWN_IDX].y-SF_Y)*SF_NY<0?-1:1,
+  cp1LastDot:(centerline[SPAWN_IDX].x-CP1.x)*CP1.nx+(centerline[SPAWN_IDX].y-CP1.y)*CP1.ny<0?-1:1,
+  cp2LastDot:(centerline[SPAWN_IDX].x-CP2.x)*CP2.nx+(centerline[SPAWN_IDX].y-CP2.y)*CP2.ny<0?-1:1,
+  cp1Done:false,cp2Done:false,  // checkpoints cleared this lap
+  s1Time:0,s2Time:0,            // sector split times
+  lapTime:0,lap:0,bestLap:Infinity,lapInvalid:false,
+  msg:'',msgTimer:0,
+  impactForce:0,   // peak impact velocity this physics step (m/s) — read & cleared by audio
+  brakeStress:0,   // acumulador de stress de frenagem: 0→1 → lock (reset ao soltar)
+  lockup:false,    // true quando rodas travadas neste frame
+};
+
+/* ── PHYSICS ─────────────────────────────────────────────────── */
+function physics(dt){
+  const si=findSpline(kart.x,kart.y);
+  kart.splineIdx=si;
+  const sd=splineData[si];
+
+  kart.onRoad    =isRoad(kart.x,kart.y);
+  kart.onRedKerb =!kart.onRoad&&isRedKerb(kart.x,kart.y);
+  kart.onBlueKerb=!kart.onRoad&&!kart.onRedKerb&&isBlueKerb(kart.x,kart.y);
+  const onGrass  =!kart.onRoad&&!kart.onRedKerb&&!kart.onBlueKerb;
+
+  let surfGrip=PHY.gripAsphalt;
+  if(kart.onRedKerb)       surfGrip=PHY.gripRedKerb;
+  else if(kart.onBlueKerb) surfGrip=PHY.gripBlueKerb;
+  else if(onGrass)         surfGrip=PHY.gripGrass;
+
+  const grip=surfGrip*tmp.tyreGrip;
+
+  kart.elevVel+=(sd.elev-kart.elev)*45*dt;kart.elevVel*=0.82;kart.elev+=kart.elevVel*dt;
+  kart.kerbBounce=kart.onRedKerb?Math.min(1,kart.kerbBounce+6*dt):kart.kerbBounce*0.84;
+
+  /* ── STAMINA ─────────────────────────────────────────────────
+     "A" consumes stamina. Recovery is slow (takes ~25s to full).
+     Red zone (stamina < 0.25): adds instability AND stamina < 0.05 disables [A].
+     When disabled, "Cansado!" message is shown.
+  ──────────────────────────────────────────────────────────── */
+  const aggKey=K.agg(); // raw button state
+  const staminaRed=kart.stamina<=0.05;
+  // [A] is locked out while in red zone — kart too tired to push
+  const agg=aggKey&&!staminaRed;
+  if(aggKey&&staminaRed&&kart.msgTimer<=0){
+    kart.msg='CANSADO!';kart.msgTimer=0.8;
+  }
+  if(aggKey&&!staminaRed) kart.stamina=Math.max(0,kart.stamina-0.32*dt); // drain ~3s
+  else                     kart.stamina=Math.min(1,kart.stamina+0.04*dt); // recover ~25s
+
+  // Low-stamina instability: 0 when stamina≥0.25, up to 1.0 when stamina=0
+  const staminaStress=Math.max(0,(0.25-kart.stamina)/0.25);     // 0→1 in red zone
+  const stamF=0.50+0.50*kart.stamina;                            // for pedal scaling
+
+  /* INPUTS */
+  let steerIn=0;
+  if(mouse.enabled){
+    // No auto-return: mouse.steer stays where it is until the player moves the mouse.
+    // The kart wheel is "locked" at the current position.
+    steerIn=mouse.steer;
+  } else {
+    if(K.left())  steerIn=-1;
+    if(K.right()) steerIn= 1;
+  }
+  if(agg&&(K.left()||K.right()||Math.abs(steerIn)>0.08)) steerIn=Math.sign(steerIn||0)*Math.min(1,Math.abs(steerIn)*1.30)*stamF;
+
+  let throttleIn=K.up()?1.0:0.0;
+  if(agg&&K.up()&&Math.abs(steerIn)<0.1){
+    kart.slipstream=Math.min(1,kart.slipstream+2*dt);
+    if(kart.msgTimer<=0){kart.msg='SLIPSTREAM!';kart.msgTimer=0.9;}
+  } else {
+    kart.slipstream=Math.max(0,kart.slipstream-3*dt);
+  }
+
+  let brakeIn=K.dn()?(agg?0.95*stamF:0.72):0.0;
+  kart.accelPedal=throttleIn;kart.brakePedal=brakeIn;
+
+  updateTemps(dt,kart);
+
+  /* STEERING */
+  // Sensibilidade do esterço: slider 1→×0.60 | slider 5→×1.00 | slider 10→×1.50
+  const steerSensMult = 0.60 + (SETTINGS.steerSens - 1) * 0.10;
+  const spdFactor=Math.max(0.50,1.0-kart.speed*0.020);
+  const steerTarget=steerIn*PHY.steerSens*steerSensMult*spdFactor;
+
+  // [A] + esterço máximo: ultrapassa o limite normal do volante
+  // Permite curvas lançadas e zerinho — visualmente o volante gira mais
+  // Limite estendido: 1.75× steerMax = 0.35 rad (vs 0.20 normal)
+  const aggSteerExt = (agg && Math.abs(steerIn) > 0.80)
+    ? PHY.steerMax * 1.75
+    : PHY.steerMax;
+
+  kart.steerAngle+=(steerTarget-kart.steerAngle)*22*dt;
+  kart.steerAngle=Math.max(-aggSteerExt,Math.min(aggSteerExt,kart.steerAngle));
+  if(!mouse.enabled&&!K.left()&&!K.right()) kart.steerAngle*=Math.pow(PHY.steerReturn,dt*60);
+
+  /* ENGINE */
+  const targetRPM=Math.max(PHY.idleRPM,kart.speed*PHY.rpmPerSpd*(1+kart.slipstream*0.22));
+  kart.rpm+=(targetRPM-kart.rpm)*4*dt;
+  kart.rpm=Math.min(PHY.maxRPM,Math.max(PHY.idleRPM,kart.rpm));
+
+  let engineF=0;
+  let throttleRearLoad=0; // how hard the rear is being pushed by engine torque
+  if(throttleIn>0){
+    const torq=engineTorque(kart.rpm)*throttleIn;
+    engineF=(torq*8.5/0.13)*(1+kart.slipstream*0.14)*(onGrass?0.26:1.0);
+    // Rear axle load under power — key input to oversteer risk
+    throttleRearLoad=throttleIn*(1+kart.slipstream*0.2)*(agg?1.4:1.0);
+  }
+  // ── CONTROLE DE TRAÇÃO ──────────────────────────────────────────────
+  // Reativo: usa slideR do frame anterior + carga de esterço atual.
+  // Nível baixo: só corta quando já deslizando.
+  // Nível alto: previne o slide antes de começar.
+  // [A] + esterço estendido + TC alto: vai impedir zerinho (comportamento correto).
+  if(SETTINGS.tcLevel>0&&engineF>0){
+    const tcStr=SETTINGS.tcLevel/10;
+    const tcRisk=Math.max(
+      kart.slideR,
+      Math.max(0,throttleRearLoad-0.75)*Math.min(1,Math.abs(kart.steerAngle)/PHY.steerMax)
+    );
+    if(tcRisk>0.06){
+      const tcCut=tcStr*Math.min(1,(tcRisk-0.06)/0.40);
+      engineF*=Math.max(0.05,1-tcCut);
+      throttleRearLoad*=Math.max(0.05,1-tcCut);
+      if(tcCut>0.28&&kart.msgTimer<=0){kart.msg='TC';kart.msgTimer=0.16;}
+    }
+  }
+  /* BRAKING ── lock-up determinístico com pumping */
+  let brakeF=0;
+  if(brakeIn>0&&kart.speed>0.1){
+    const pedalBite=Math.sqrt(brakeIn);
+    brakeF=PHY.brakeMax*PHY.mass*pedalBite*tmp.brakeEff;
+  }
+
+  // ── LOCK-UP DETERMINÍSTICO ────────────────────────────────────
+  // brakeStress acumula durante frenagem pesada em alta velocidade.
+  // Pumping (soltar o freio) drena 4x mais rápido — técnica correta.
+  // Ao travar: brakeF cai + gripRear penalizado + perturbação de yaw.
+  {
+    const lockSpeedGate=Math.min(1,Math.max(0,(kart.speed-4)/14));
+    if(brakeIn>PHY.brakeLockRisk&&lockSpeedGate>0.1){
+      kart.brakeStress=Math.min(1.5,kart.brakeStress+((brakeIn-PHY.brakeLockRisk)/0.20)*lockSpeedGate*2.8*dt);
+    } else {
+      kart.brakeStress=Math.max(0,kart.brakeStress-4.2*dt);
+    }
+    kart.lockup=kart.brakeStress>=1.0;
+    if(kart.lockup){
+      brakeF*=0.52;                          // roda travada = menos força de freio
+      if(kart.msgTimer<=0){kart.msg='LOCK!';kart.msgTimer=0.35;}
+    }
+  }
+
+  /* LONGITUDINAL */
+  const dragF=PHY.dragK*kart.speed*kart.speed*PHY.mass+PHY.rollRes;
+  const longAcc=(engineF-brakeF-dragF)/PHY.mass;
+
+  /* ── BICYCLE MODEL + TRACTION ──────────────────────────────────────
+     Modelo inspirado em GT/Automobilista/Kart Kraft:
+
+     PNEU HÍBRIDO (hybridTyre):
+       Linear até satL=0.28 rad (16°) — igual ao anterior.
+       Além do pico: decaimento exponencial (k=0.55/rad).
+       Sobrecarregar o pneu PIORA ativamente o grip.
+
+     WEIGHT TRANSFER DINÂMICO:
+       Frenagem desloca carga para frente → traseiro fica leve.
+       h_cg/wb = 0.22/1.05 = 0.210 (kart CG muito baixo).
+       Freio 8 m/s² → gripRear −17%. Freio em curva = risco real.
+
+     OVERSTEER — menos frequente, muito mais violento:
+       Threshold: SA = 0.22 rad (12.6°) — 27% acima do anterior (9.9°).
+       Build rate: 2.4× mais rápido. slideR=0.5 em ~0.36s após disparo.
+       slideR REDUZ Fry diretamente: espiral física auto-amplificante.
+       Sem countersteer → spin inevitável. Com CS → recuperável.
+
+     COUNTERSTEER COM MOMENTO FÍSICO (Mz_cs):
+       Aplicado diretamente ao yawRate (não apenas ao acumulador).
+       Proporcional a csEffect × slideR × velocidade.
+       CS perfeito recupera spin de ~2 rad/s em ~0.5s.
+
+     LOCK-UP: já calculado acima no bloco BRAKING.
+  ──────────────────────────────────────────────────────────────── */
+
+  const vx=Math.max(0.8,kart.speed);
+  const vy=kart.latVel;
+  const r=kart.yawRate;
+
+  const fSA_raw=(vy+PHY.wheelbase*PHY.cgBias*r)/vx-kart.steerAngle;
+  const rSA_raw=(vy-PHY.wheelbase*(1-PHY.cgBias)*r)/vx;
+
+  // ── TRACTION CIRCLE: longAcc reduz capacidade lateral ──────────
+  const longSlip=Math.min(1,Math.abs(longAcc)/(PHY.brakeMax*1.2+0.1));
+  const latCapF=Math.sqrt(Math.max(0.05,1-longSlip*0.55));
+
+  // ── WEIGHT TRANSFER DINÂMICO ────────────────────────────────────
+  // CG baixo do kart: h/wb = 0.22/1.05 = 0.210
+  // Freio pesado (8 m/s²) → gripRear cai ~17%
+  // Aceleração carrega levemente o traseiro (+grip)
+  const longDecel_g=Math.max(0,-longAcc)/9.81;   // positivo ao freiar
+  const longAccel_g=Math.max(0, longAcc)/9.81;   // positivo ao acelerar
+  const wtRearFactor=Math.max(0.38,Math.min(1.18,
+    1.0 - longDecel_g*0.210*1.35              // decel: traseiro fica leve
+      + longAccel_g*0.210*0.55               // accel: traseiro ganha carga leve
+  ));
+
+  // Lock-up penaliza grip traseiro (pneu deslizando puro = sem grip lateral)
+  const lockGripPenalty=kart.lockup?0.50:1.0;
+
+  // Capacidade lateral traseira: traction circle + weight transfer + lockup
+  const latCapR=Math.sqrt(Math.max(0.05,1-longSlip*0.80))*wtRearFactor*lockGripPenalty;
+
+  // ── PNEU HÍBRIDO: linear até satL, falloff exponencial além ────
+  // Preserva comportamento anterior dentro do limite.
+  // Além: cada rad extra custa ~42% da força restante (k=0.55).
+  const satL=0.28;
+  function hybridTyre(sa,C,g,cap){
+    const raw=-C*g*sa;
+    const maxF=C*g*satL*cap;
+    if(Math.abs(raw)<=maxF) return raw;
+    return -Math.sign(sa)*maxF*Math.exp(-0.55*(Math.abs(sa)-satL));
+  }
+
+  // Temperatura dos pneus
+  const tempStability=Math.min(1,(tmp.tyreGrip-0.42)/0.58);
+  const coldMult=1+1.6*(1-tempStability);
+  const aggMult=agg?1.55:1.0;
+  const stNoise=(Math.random()-0.5)*staminaStress*0.04;
+
+  // slideDir: direção do escorregamento traseiro
+  const slideDir=rSA_raw>0?1:-1;
+
+  // Countersteer: girar na direção do slideDir
+  // slideDir=+1 (traseiro para esquerda) → steerAngle>0 (direita) → cs>0 ✓
+  const csEffect=Math.max(0,(kart.steerAngle/PHY.steerMax)*slideDir);
+
+  // slideR reduz Fry — espiral moderada (0.45 vs 0.68 anterior):
+  // ainda cria feedback positivo mas dá janela para recuperação
+  const rearSlideGripLoss=1.0-kart.slideR*0.45;
+
+  const Ffy=hybridTyre(fSA_raw,PHY.Cf,grip,latCapF);
+  const Fry=hybridTyre(rSA_raw,PHY.Cr,grip,latCapR*rearSlideGripLoss);
+
+  kart.tyreSlipF=Math.min(1,Math.abs(fSA_raw)/satL);
+  kart.tyreSlipR=Math.min(1,Math.abs(rSA_raw)/satL);
+
+  const Fy_total=Ffy+Fry;
+  const Mz=PHY.wheelbase*PHY.cgBias*Ffy-PHY.wheelbase*(1-PHY.cgBias)*Fry;
+  kart.gripLevel=1.0-Math.min(1,Math.abs(Fy_total)/((PHY.Cf+PHY.Cr)*grip*satL+1));
+
+  // ── UNDERSTEER ───────────────────────────────────────────────────
+  const frontSat=Math.abs(fSA_raw+stNoise)/satL;
+  const underRisk=frontSat*aggMult*coldMult*(1+staminaStress*0.4);
+  const underFactor=underRisk>1.2?Math.max(0.35,1-(underRisk-1.2)*0.55):1.0;
+  if(underRisk>1.4&&kart.msgTimer<=0){kart.msg='UNDERSTEER';kart.msgTimer=0.22;}
+  if(underRisk>1.0) kart.slideF=Math.min(1,kart.slideF+(underRisk-1.0)*3*dt);
+  else              kart.slideF=Math.max(0,kart.slideF-4*dt);
+
+  // ── OVERSTEER ──────────────────────────────────────────────────
+  //
+  // rearRiskMult sem aggMult no cornerThrottle: [A] acelera mais,
+  // mas NÃO amplifica diretamente o risco de oversteer em curvas normais.
+  // O risco sobe naturalmente quando o throttle excede 60% em curva fechada,
+  // quando há frenagem, ou quando há lock-up.
+  //
+  // buildRate usa excess^1.4: zona macia (excesso pequeno) → acumulação lenta,
+  // dando janela perceptível de "saída de traseira" antes do spin abrupto.
+  //
+  // slideR drena mais rápido quando yawRate é alto: o spin auto-limita
+  // porque as forças no pneu se dissipam com a rotação do chassi.
+  // Isso produz spins de 150-270° em vez de loops contínuos.
+
+  const rearSat=Math.abs(rSA_raw+stNoise)/satL;
+  // cornerThrottle: só amplifica quando throttle excede 60% em curva
+  // (potência extra carregando o traseiro além da capacidade de grip)
+  const cornerThrottleExcess=Math.max(0,throttleRearLoad-0.60)*Math.abs(kart.steerAngle/PHY.steerMax);
+  const rearRiskMult=Math.sqrt(coldMult)
+    *(1.0+cornerThrottleExcess*0.50)   // throttle em curva carrega o traseiro
+    *(1.0+staminaStress*0.45)          // fadiga aumenta instabilidade
+    *(kart.lockup?1.50:1.0);           // lock-up: traseiro perde grip lateral
+  const overThreshNorm=0.94;           // SA = 0.94*0.28 = 0.263 rad = 15.1° base
+  const overThresh=overThreshNorm/rearRiskMult;
+
+  // spinDecay: quando o kart já está girando rápido, o slideR drena
+  // mais depressa — representa as forças de restituição do chassi em rotação.
+  // Efeito: spins naturalmente limitados, sem loops infinitos.
+  const spinDecay=1.0+Math.abs(kart.yawRate)/2.5;
+
+  if(rearSat>overThresh){
+    const buildRate=Math.pow(rearSat-overThresh,1.4)*rearRiskMult*5.5;
+    kart.slideR=Math.min(1.0,kart.slideR+buildRate*dt);
+    if(kart.slideR>0.28&&kart.msgTimer<=0){kart.msg='OVERSTEER';kart.msgTimer=0.20;}
+  } else {
+    // softZoneBonus: recuperação mais fácil quando o slide ainda é leve
+    const softZoneBonus=Math.max(0,(0.5-kart.slideR)/0.5)*1.8;
+    const decayRate=(0.5+tempStability*1.0+csEffect*7.0+softZoneBonus)*spinDecay;
+    kart.slideR=Math.max(0,kart.slideR-decayRate*dt);
+  }
+  kart.powerslide=kart.slideR>0.25;
+
+  // Lock-up: perturbação de yaw assimétrica (pneu deslizando puro)
+  if(kart.lockup&&kart.speed>6){
+    const lockSpeedGate=Math.min(1,Math.max(0,(kart.speed-4)/14));
+    kart.yawRate+=Math.sign(kart.steerAngle||rSA_raw||1)*0.014*lockSpeedGate;
+  }
+
+  /* ── YAW ──────────────────────────────────────────────────────────
+     Mz_cs: momento restaurador do countersteer.
+     kFricYaw: fricção viscosa no eixo de guinada — limita spins infinitos.
+       - Proporcional a yawRate² (quadrático)
+       - Em yaw=3 rad/s: remove ~2.7 rad/s² extra vs Mz do bicycle
+       - Resultado: spin de 150-270° sem input, não 720°+
+       - Em curva normal (yaw<2): efeito mínimo (<15% do Mz)
+  ──────────────────────────────────────────────────────────────── */
+  const Mz_cs=csEffect*kart.slideR*kart.speed*PHY.mass*0.052;
+  const kFricYaw=1.8; // fricção viscosa de guinada [Nm·s²/rad²]
+
+  const MzEffective=Mz*underFactor;
+  const spdGate=Math.min(1,kart.speed/1.2);
+  const yawMax=5.5;
+
+  kart.yawRate=(MzEffective/PHY.Iz)*dt*spdGate
+              -(Mz_cs/PHY.Iz)*dt*Math.sign(kart.yawRate||1)
+              -kFricYaw*Math.abs(kart.yawRate)*kart.yawRate*dt
+              +kart.yawRate*Math.pow(PHY.yawDampFrac,dt);  // damping normal, sem modificação
+  kart.yawRate=Math.max(-yawMax,Math.min(yawMax,kart.yawRate));
+  kart.heading+=kart.yawRate*dt;
+
+  /* LATERAL VELOCITY */
+  kart.latVel+=(Fy_total/PHY.mass-vx*r)*dt;
+  kart.latVel*=Math.pow(0.60+grip*0.22,dt);
+  // Limitar latVel a ±70% de vx — evita valores absurdos durante spin
+  // (sem este cap, rSA enorme → Fry=0 → latVel cresce sem limite)
+  kart.latVel=Math.max(-vx*0.70,Math.min(vx*0.70,kart.latVel));
+
+  /* SPEED */
+  kart.speed+=longAcc*dt;
+  kart.speed=Math.max(0,Math.min(38.89*(1+kart.slipstream*0.04),kart.speed)); // 140 km/h max
+  if(onGrass) kart.speed*=1-0.30*dt;
+
+  /* WORLD POSITION
+     latVel contribui com fator 0.72 (era 0.32) para que o spin ocorra
+     ao redor do próprio eixo do kart. Factor < 1.0 evita deriva excessiva
+     em situações normais mas captura o movimento lateral do spin.
+     Após 180° de spin o kart naturalmente vai de ré (heading revertido). */
+  const ch=Math.cos(kart.heading),sh2=Math.sin(kart.heading);
+  const latW=kart.latVel*0.72;
+  kart.x+=(ch*kart.speed-sh2*latW)*45*dt;
+  kart.y+=(sh2*kart.speed+ch*latW)*45*dt;
+  kart.x=((kart.x%WORLD)+WORLD)%WORLD;
+  kart.y=((kart.y%WORLD)+WORLD)%WORLD;
+
+  /* ── BARRIER COLLISION ── push kart out of tyre walls */
+  resolveBarrierCollisions();
+
+  /* ── LAP & SECTOR DETECTION ────────────────────────────────────
+     Three geometric plane-crossing gates:
+       CP1 (~45% circuit): top section — must cross before S/F counts
+       CP2 (~75% circuit): interior exit — must cross before S/F counts
+       S/F line          : counts lap only if both CPs were cleared
+     Each gate uses a dot-product sign-flip test so only the physical
+     plane position matters — no false triggers from other sections.
+  ────────────────────────────────────────────────────────────── */
+  kart.trackFrac=arcLen[si]/totalLen; // minimap position
+
+  // Helper: dot-product plane test for a checkpoint object
+  function cpDot(cp){ return (kart.x-cp.x)*cp.nx+(kart.y-cp.y)*cp.ny; }
+  function cpLat(cp){ return Math.abs((kart.x-cp.x)*cp.lx+(kart.y-cp.y)*cp.ly); }
+
+  // ── CP1 (top section) ──
+  {
+    const d=cpDot(CP1);
+    const onCP1=cpLat(CP1)<TW*2.5;
+    if(kart.cp1LastDot<0 && d>=0 && onCP1 && !kart.cp1Done){
+      kart.cp1Done=true;
+      kart.s1Time=kart.lapTime; // sector 1 split
+    }
+    kart.cp1LastDot=d;
+  }
+
+  // ── CP2 (interior exit) ──
+  {
+    const d=cpDot(CP2);
+    const onCP2=cpLat(CP2)<TW*2.5;
+    if(kart.cp2LastDot<0 && d>=0 && onCP2 && kart.cp1Done && !kart.cp2Done){
+      kart.cp2Done=true;
+      kart.s2Time=kart.lapTime; // sector 2 split
+    }
+    kart.cp2LastDot=d;
+  }
+
+  // ── S/F line ──
+  {
+    const sfDot=(kart.x-SF_X)*SF_NX+(kart.y-SF_Y)*SF_NY;
+    // Lateral = distance along the line itself (perp to travel direction)
+    const sfLat=Math.abs((kart.x-SF_X)*SF_LINEX+(kart.y-SF_Y)*SF_LINEY);
+    const onSF=sfLat<TW*2.0; // must be within track width of line centre
+    const sfIdxDist=Math.min(Math.abs(si-_sfGeoIdx),CLEN-Math.abs(si-_sfGeoIdx));
+    const nearSFSpline=sfIdxDist<CLEN*0.16;
+    if(kart.sfLastDot<0 && sfDot>=0 && onSF && nearSFSpline && kart.lapTime>8){
+      kart.lap++;
+      if(!kart.cp1Done||!kart.cp2Done) kart.lapInvalid=true; // missed a CP
+      if(!kart.lapInvalid){
+        lapHistory.unshift(kart.lapTime);
+        if(lapHistory.length>5) lapHistory.pop();
+        if(kart.lapTime<kart.bestLap){
+          kart.bestLap=kart.lapTime;
+          persistBests=saveBestLap(kart.lapTime);
+          kart.msg='★ BEST LAP!';kart.msgTimer=2.5;
+        } else {kart.msg='LAP '+kart.lap;kart.msgTimer=1.4;}
+      } else {
+        kart.msg='VOLTA INVÁLIDA';kart.msgTimer=2.5;
+      }
+      // Reset for next lap — re-init CP dot signs from current kart position
+      kart.lapTime=0;kart.lapInvalid=false;
+      kart.cp1Done=false;kart.cp2Done=false;
+      kart.s1Time=0;kart.s2Time=0;
+      kart.cp1LastDot=(kart.x-CP1.x)*CP1.nx+(kart.y-CP1.y)*CP1.ny<0?-1:1;
+      kart.cp2LastDot=(kart.x-CP2.x)*CP2.nx+(kart.y-CP2.y)*CP2.ny<0?-1:1;
+    }
+    kart.sfLastDot=sfDot;
+    const nearSF=onSF&&Math.abs(sfDot)<TW*0.6;
+    kart.lapTime+=dt;
+    if(kart.msgTimer>0) kart.msgTimer-=dt;
+    if(onGrass&&kart.speed>2&&kart.msgTimer<=0&&!nearSF){kart.msg='GRASS!';kart.msgTimer=0.35;}
+  }
+}
+
+/* ── CAMERA ──────────────────────────────────────────────────── */
+let camH2=0,camRoll=0,camPitch=0;
+function updateCam(dt){
+  camH2+=(kart.heading-camH2)*9*dt;
+  const tr=kart.yawRate*kart.speed*0.005+kart.steerAngle*kart.speed*0.004;
+  camRoll+=(tr-camRoll)*7*dt;
+  const tp=-kart.elevVel*0.003+kart.kerbBounce*0.013;
+  camPitch+=(tp-camPitch)*5*dt;
+}
+
+/* ── RENDER ──────────────────────────────────────────────────── */
+function render(){
+  const W=IW,H=IH;
+  // horizon at ~40% of screen — more sky = more buffer for camRoll corners
+  const horizon=Math.floor(H*0.40+camPitch*18+kart.kerbBounce*4);
+
+  /* STEP 1 — Fill entire canvas with brightest sky colour so any
+     gap from camRoll rotation shows as sky, not black */
+  bx.fillStyle='#6e96be'; bx.fillRect(0,0,W,H);
+
+  /* STEP 2 — Sky gradient top→horizon */
+  const sky=['#050e1e','#091628','#0f2040','#162c58','#1e3c74','#2e5490','#4272aa','#6090c4'];
+  const skyH=Math.max(1,horizon);
+  const bandH=Math.ceil(skyH/sky.length)+2;
+  for(let si2=0;si2<sky.length;si2++){
+    bx.fillStyle=sky[si2];
+    bx.fillRect(0,Math.round(si2*skyH/sky.length),W,bandH);
+  }
+
+  /* STEP 3 — Scenery drawn UN-rotated (always fills full width) */
+  // Far hill
+  bx.fillStyle='#0a1e06';
+  bx.beginPath(); bx.moveTo(-2,horizon+2);
+  for(let x=0;x<=W+2;x+=12){
+    const hn=Math.sin(x*0.018+camH2*0.6)*16+Math.sin(x*0.007+camH2*0.22)*10;
+    bx.lineTo(x,horizon-28+hn);
+  }
+  bx.lineTo(W+2,horizon+2); bx.closePath(); bx.fill();
+  // Near treeline
+  bx.fillStyle='#122e09';
+  bx.beginPath(); bx.moveTo(-2,horizon+2);
+  for(let x=0;x<=W+2;x+=8){
+    const hn=Math.sin(x*0.031+camH2*0.95)*11+Math.sin(x*0.012+camH2*0.4)*6;
+    bx.lineTo(x,horizon-12+hn);
+  }
+  bx.lineTo(W+2,horizon+2); bx.closePath(); bx.fill();
+  // Solid grass-green strip sealing the horizon line
+  bx.fillStyle='#1a4a0a'; bx.fillRect(0,horizon-2,W,6);
+
+  /* STEP 4 — Mode7 ground drawn into ImageData (no 2×2 block artefacts) */
+  bx.save();
+  bx.translate(W/2,H/2); bx.rotate(camRoll*0.22); bx.translate(-W/2,-H/2);
+  const camHeight=26+kart.elev*0.06+kart.kerbBounce*3;
+  const fwd=500,scl=158;
+  const sinA=Math.sin(camH2),cosA=Math.cos(camH2);
+  const groundTop=Math.max(0,horizon-4);
+  const groundRows=H-groundTop;
+  if(groundRows>0){
+    const imgd=bx.createImageData(W,groundRows);
+    const buf32=new Uint32Array(imgd.data.buffer);
+    const ew0=kart.elevVel*0.0003;
+    for(let sy=0;sy<groundRows;sy++){
+      const row=sy+1; // row from horizon
+      const persp=camHeight/row;
+      const ew=ew0*row;
+      const baseWX=kart.x+cosA*fwd*persp+ew*sinA;
+      const baseWY=kart.y+sinA*fwd*persp+ew*cosA; // corrected ew direction
+      const dxWX=-sinA*(fwd*persp)/scl;
+      const dxWY= cosA*(fwd*persp)/scl;
+      const rowOff=sy*W;
+      // Start at leftmost pixel sx=0: dx=(0-W/2)/scl
+      let wx=baseWX+dxWX*(0-W/2);
+      let wy=baseWY+dxWY*(0-W/2);
+      for(let sx=0;sx<W;sx++){
+        const c=samplePx(wx,wy);
+        buf32[rowOff+sx]=(255<<24)|(c.b<<16)|(c.g<<8)|c.r;
+        wx+=dxWX;
+        wy+=dxWY;
+      }
+    }
+    bx.putImageData(imgd,0,groundTop);
+  }
+  bx.restore();
+
+  drawCockpit();
+}
+
+/* ── COCKPIT ─────────────────────────────────────────────────── */
+function drawCockpit(){
+  const W=IW,H=IH,cx=W/2;
+
+  // steerVis: +1 = right, -1 = left (matches steerAngle sign)
+  const steerVis=kart.steerAngle/PHY.steerSens;
+
+  const kerbShake=kart.onRedKerb?kart.kerbBounce*(Math.random()-.5)*4:0;
+  const sway=steerVis*7+kerbShake;
+
+  // ═══════════════════════════════════════════════════════════════
+  //  COCKPIT CONFIGURATION — edit these values to adjust kart design
+  // ═══════════════════════════════════════════════════════════════
+  //
+  //  CHASSIS
+  //    CHS_W      Half-width of chassis bottom edge (px from center). Default: W*0.28
+  //    CHS_MID    Half-width at cockpit opening, before flare to outer edge. Default: 86
+  //    CHS_H      Height of cockpit opening above screen bottom (px). Default: 36
+  //    CHS_CURVE  Height of the center curve above the cockpit line (px). Default: 40
+  //
+  //  FRONT BUBBLE (carenagem frontal)
+  //    BUBBLE_W   Half-width of bubble base (px). Default: 46
+  //    BUBBLE_TOP How far above CHS line the bubble top sits (px). Larger = taller. Default: 62
+  //    BUBBLE_Y   Y-position of bubble base (offset from bottom). Default: H-26
+  //
+  //  FRONT WHEELS
+  //    TYRE_X     Horizontal offset from center for front tyres (px). Default: 100
+  //    TYRE_Y     Vertical position (offset from bottom, px). Default: H-18
+  //    TYRE_W     Tyre half-width (px). Default: 14
+  //    TYRE_H     Tyre half-height (px). Default: 30
+  //
+  //  STEERING WHEEL
+  //    WSZ        Wheel radius (px). Default: 46
+  //    WY         Wheel Y position offset from screen bottom. Default: H-6
+  //
+  //  RACEBOX (display gadget on top of steering wheel)
+  //    RBX_W      Racebox width (px). Default: 32
+  //    RBX_H      Racebox height (px). Default: 12
+  //    RBX_Y      Racebox Y offset from wheel center (above = negative). Default: -wsz+4
+  // ═══════════════════════════════════════════════════════════════
+  const CHS_W      = W * 0.28;   // narrower chassis half-width
+  const CHS_MID    = 82;         // cockpit opening half-width (narrowed slightly)
+  const CHS_H      = 34;         // cockpit opening height
+  const CHS_CURVE  = 42;         // center curve height
+  const BUBBLE_W   = 48;         // front bubble base half-width
+  const BUBBLE_TOP = 70;         // front bubble height (increased = taller)
+  const BUBBLE_Y   = H - 24;     // front bubble base Y
+  const TYRE_X     = 108;        // front tyre offset (slightly narrower)
+  const TYRE_Y     = H - 18;
+  const TYRE_W     = 14;
+  const TYRE_H     = 30;
+  const WSZ        = 46;
+  const WY         = H - 6;
+  // ═══════════════════════════════════════════════════════════════
+  // Chassis outer shell
+  bx.fillStyle='#0d0d0d';
+  bx.beginPath();
+  bx.moveTo(cx - CHS_W + sway * 0.25, H);
+  bx.lineTo(cx - CHS_MID + sway, H - CHS_H);
+  bx.quadraticCurveTo(cx + sway, H - CHS_H - CHS_CURVE + 12, cx + CHS_MID + sway, H - CHS_H);
+  bx.lineTo(cx + CHS_W + sway * 0.25, H);
+  bx.fill();
+
+  // Carbon-weave detail strips
+  bx.fillStyle='#171717';
+  for(let b=0;b<9;b++){
+    bx.fillRect(cx - CHS_MID*0.95 + sway + b*18, H - CHS_H + 2, 7, 8);
+    bx.fillRect(cx - CHS_MID*0.95 + sway + 9 + b*18, H - CHS_H + 10, 7, 8);
+  }
+
+  // Front bubble (carenagem frontal) — taller than before
+  bx.fillStyle='#181818';
+  bx.beginPath();
+  bx.moveTo(cx - BUBBLE_W + sway, BUBBLE_Y);
+  bx.quadraticCurveTo(cx + sway, BUBBLE_Y - BUBBLE_TOP, cx + BUBBLE_W + sway, BUBBLE_Y);
+  bx.lineTo(cx + BUBBLE_W * 0.72 + sway, BUBBLE_Y + 12);
+  bx.quadraticCurveTo(cx + sway, BUBBLE_Y - BUBBLE_TOP + 18, cx - BUBBLE_W * 0.72 + sway, BUBBLE_Y + 12);
+  bx.fill();
+  // Bubble highlight strip
+  bx.strokeStyle='rgba(255,255,255,0.07)';
+  bx.lineWidth = 2;
+  bx.beginPath();
+  bx.moveTo(cx - BUBBLE_W * 0.55 + sway, BUBBLE_Y - 8);
+  bx.quadraticCurveTo(cx + sway, BUBBLE_Y - BUBBLE_TOP + 10, cx + BUBBLE_W * 0.55 + sway, BUBBLE_Y - 8);
+  bx.stroke();
+
+  /* STEERING WHEEL — flat top (kart-style), rotates correctly
+     Flat segment replaces top arc so the wheel looks like a kart D-wheel.
+     wrot > 0 = clockwise = turning right. */
+  const wrot = steerVis * (Math.PI / 2);
+  const wsz  = WSZ;
+  const wx2  = cx + sway * 0.26, wy2 = WY;
+
+  bx.save();
+  bx.translate(wx2, wy2);
+  bx.rotate(wrot);
+
+  // Outer rim shadow
+  bx.strokeStyle='#111'; bx.lineWidth=10;
+  // Full circle base
+  bx.beginPath(); bx.arc(0,0,wsz,0,Math.PI*2); bx.stroke();
+
+  // ── FLAT-TOP WHEEL RIM ─────────────────────────────────────────
+  // Draw the rim as bottom arc + flat top line
+  const flatAngle = Math.asin(Math.min(1, wsz * 0.85 / wsz)); // how far flat goes
+  bx.strokeStyle='#2c2c2c'; bx.lineWidth=7;
+  bx.beginPath();
+  // Bottom arc (just below flat line)
+  bx.arc(0, 0, wsz, -Math.PI + flatAngle * 0.7, flatAngle * 0.7 + Math.PI * 0.98);
+  bx.stroke();
+  // Flat top bar
+  const flatX = wsz * Math.cos(Math.PI - flatAngle * 0.7);
+  bx.beginPath();
+  bx.moveTo(-wsz * Math.cos(flatAngle * 0.7 - 0.05), -wsz * Math.sin(flatAngle * 0.7 - 0.05) - 3.5);
+  bx.lineTo( wsz * Math.cos(flatAngle * 0.7 - 0.05), -wsz * Math.sin(flatAngle * 0.7 - 0.05) - 3.5);
+  bx.stroke();
+
+  // Inner highlight on rim
+  bx.strokeStyle='#383838'; bx.lineWidth=3.5;
+  bx.beginPath(); bx.arc(0,0,wsz-2, -Math.PI + flatAngle * 0.7, flatAngle * 0.7 + Math.PI * 0.98); bx.stroke();
+
+  // Spokes
+  bx.strokeStyle='#232323'; bx.lineWidth=6;
+  [[0,-wsz],[-wsz*0.87,wsz*0.5],[wsz*0.87,wsz*0.5]].forEach(([ex,ey])=>{
+    bx.beginPath();bx.moveTo(0,0);bx.lineTo(ex*0.88,ey*0.88);bx.stroke();
+  });
+  bx.strokeStyle='#303030'; bx.lineWidth=3;
+  [[0,-wsz],[-wsz*0.87,wsz*0.5],[wsz*0.87,wsz*0.5]].forEach(([ex,ey])=>{
+    bx.beginPath();bx.moveTo(0,0);bx.lineTo(ex*0.88,ey*0.88);bx.stroke();
+  });
+
+  // Yellow grip zone (bottom arc)
+  bx.strokeStyle='#f5c200'; bx.lineWidth=8;
+  bx.beginPath(); bx.arc(0,0,wsz,-Math.PI*0.88,-Math.PI*0.12); bx.stroke();
+  bx.strokeStyle='#ffe030'; bx.lineWidth=4;
+  bx.beginPath(); bx.arc(0,0,wsz,-Math.PI*0.78,-Math.PI*0.22); bx.stroke();
+
+  // Center hub
+  bx.fillStyle='#0a0a0a'; bx.beginPath(); bx.arc(0,0,12,0,Math.PI*2); bx.fill();
+  bx.fillStyle='#606060'; bx.beginPath(); bx.arc(0,0,8,0,Math.PI*2); bx.fill();
+  bx.fillStyle='#1a1a1a'; bx.beginPath(); bx.arc(0,0,4,0,Math.PI*2); bx.fill();
+
+  // ── RACEBOX GADGET ─────────────────────────────────────────────
+  // Drawn in wheel-local space (rotates with wheel).
+  // Two sections: RPM LED row (top) + digital speed screen (bottom).
+  const rpmFrac = Math.min(1, (kart.rpm - 3200) / (13500 - 3200));
+  const rbW = 38, rbH = 22;
+  const rbX = -rbW / 2, rbY = -wsz + 3;
+
+  // Outer box with bezel
+  bx.fillStyle = '#080808';
+  bx.beginPath(); bx.roundRect(rbX - 1, rbY - 1, rbW + 2, rbH + 2, 2); bx.fill();
+  bx.strokeStyle = '#555'; bx.lineWidth = 0.8;
+  bx.strokeRect(rbX - 0.5, rbY - 0.5, rbW + 1, rbH + 1);
+
+  // ── RPM LED ROW ─────────────────────────────────────────────────
+  // 8 LEDs. Light up progressively. Top 2 flash red at redline.
+  const LED_N = 8;
+  const ledLit = Math.ceil(rpmFrac * LED_N);           // how many are lit
+  const redline = rpmFrac > 0.87;
+  const flashOn = redline && (Math.floor(Date.now() / 80) % 2 === 0); // 80ms flash
+  const ledY = rbY + 4.5;
+  const ledSpacing = (rbW - 4) / (LED_N - 1);
+
+  for (let i = 0; i < LED_N; i++) {
+    const lx = rbX + 2 + i * ledSpacing;
+    const lit = i < ledLit;
+
+    // LED color zones: green(0-4), yellow(5-5), orange(6-6), red(7)
+    let col;
+    if (i <= 4)      col = lit ? '#00e050' : '#0a1a0a';
+    else if (i === 5) col = lit ? '#ffe000' : '#1a1500';
+    else if (i === 6) col = lit ? '#ff8000' : '#1a0800';
+    else              col = (lit && (!redline || flashOn)) ? '#ff1818' : '#1a0000';
+
+    // LED body (elliptical shape)
+    bx.fillStyle = col;
+    bx.beginPath(); bx.ellipse(lx, ledY, 2.0, 2.6, 0, 0, Math.PI * 2); bx.fill();
+
+    // Glow effect on lit LEDs
+    if (lit) {
+      bx.save();
+      bx.globalAlpha = 0.35;
+      bx.fillStyle = col;
+      bx.beginPath(); bx.ellipse(lx, ledY, 3.5, 4.0, 0, 0, Math.PI * 2); bx.fill();
+      bx.globalAlpha = 1;
+      bx.restore();
+    }
+  }
+
+  // ── DIGITAL SPEED SCREEN ────────────────────────────────────────
+  // LCD-style dark green screen with 7-segment-ish font rendering.
+  const scrX = rbX + 1, scrY = rbY + 10, scrW = rbW - 2, scrH = rbH - 12;
+
+  // Screen background (dark LCD green)
+  bx.fillStyle = '#001a08';
+  bx.fillRect(scrX, scrY, scrW, scrH);
+  bx.strokeStyle = '#002208'; bx.lineWidth = 0.5;
+  bx.strokeRect(scrX, scrY, scrW, scrH);
+
+  // Speed value
+  const kmhVal = Math.round(kart.speed * 3.6);
+  const kmhStr = kmhVal.toString().padStart(3, ' ');
+
+  // Draw using a minimal 7-segment style (3×5 pixel grid per digit)
+  // Each segment drawn as small rectangles
+  function drawDigit7seg(digit, ox, oy, dw, dh, col) {
+    // segments: [top, topL, topR, mid, botL, botR, bot]
+    const segs = {
+      '0':[1,1,1,0,1,1,1], '1':[0,0,1,0,0,1,0], '2':[1,0,1,1,1,0,1],
+      '3':[1,0,1,1,0,1,1], '4':[0,1,1,1,0,1,0], '5':[1,1,0,1,0,1,1],
+      '6':[1,1,0,1,1,1,1], '7':[1,0,1,0,0,1,0], '8':[1,1,1,1,1,1,1],
+      '9':[1,1,1,1,0,1,1], ' ':[0,0,0,0,0,0,0],
+    };
+    const s = segs[digit] || segs[' '];
+    const sw = dw - 1, sh = dh * 0.5 - 1;
+    const t = 1; // thickness
+    bx.fillStyle = col;
+    if(s[0]) bx.fillRect(ox+t, oy,       sw-t*2, t);       // top horiz
+    if(s[1]) bx.fillRect(ox,   oy+t,     t, sh-t*2);       // top-left vert
+    if(s[2]) bx.fillRect(ox+sw-t, oy+t,  t, sh-t*2);       // top-right vert
+    if(s[3]) bx.fillRect(ox+t, oy+sh-t,  sw-t*2, t);       // mid horiz
+    if(s[4]) bx.fillRect(ox,   oy+sh,    t, sh-t*2);       // bot-left vert
+    if(s[5]) bx.fillRect(ox+sw-t, oy+sh, t, sh-t*2);       // bot-right vert
+    if(s[6]) bx.fillRect(ox+t, oy+dh-t-1, sw-t*2, t);     // bot horiz
+  }
+
+  const dw = 8, dh = scrH - 1;
+  const totalW = dw * 3 + 2;
+  const startX = scrX + (scrW - totalW) / 2;
+
+  // Draw ghost (dim) digits for all positions
+  for (let d = 0; d < 3; d++) {
+    drawDigit7seg('8', startX + d * (dw + 1), scrY + 0.5, dw, dh, '#002a10');
+  }
+  // Draw active digits
+  for (let d = 0; d < 3; d++) {
+    const ch = kmhStr[d];
+    drawDigit7seg(ch, startX + d * (dw + 1), scrY + 0.5, dw, dh, '#00ff70');
+  }
+
+  bx.restore();
+
+  /* FRONT TYRES — realistic with rotation effect at speed */
+  const tyreAngle = steerVis * 0.28;
+  //const wheelRot  = (kart.speed * 0.4) % (Math.PI * 2); // rotation animation
+
+  [-1,1].forEach(side=>{
+    bx.save();
+    bx.translate(cx + side * TYRE_X + sway * 0.13, TYRE_Y);
+    bx.rotate(tyreAngle);
+
+    const tw = TYRE_W, th = TYRE_H;
+
+    // Tyre sidewall (outer shape)
+    bx.fillStyle='#0a0a0a';
+    bx.beginPath();
+    bx.roundRect(-tw, -th, tw*2, th*2, 4);
+    bx.fill();
+/*
+    // Tyre texture / tread lines (rotated with wheel spin)
+    bx.save();
+    bx.rotate(wheelRot);
+    bx.strokeStyle='rgba(40,40,40,0.9)'; bx.lineWidth=1.5;
+    for(let t=0;t<4;t++){
+      const ang=t*Math.PI/2+wheelRot*0;
+      bx.beginPath();
+      bx.moveTo(Math.cos(ang)*3, Math.sin(ang)*3);
+      bx.lineTo(Math.cos(ang)*(tw-2), Math.sin(ang)*(th-3));
+      bx.stroke();
+    }
+    // Rim circle
+    bx.fillStyle='#2a2a2a';
+    bx.beginPath(); bx.arc(0,0,tw*0.72,0,Math.PI*2); bx.fill();
+    bx.fillStyle='#444';
+    bx.beginPath(); bx.arc(0,0,tw*0.55,0,Math.PI*2); bx.fill();
+    // Rim spokes
+    bx.strokeStyle='#555'; bx.lineWidth=1.5;
+    for(let s2=0;s2<5;s2++){
+      const sa=s2*Math.PI*2/5;
+      bx.beginPath();
+      bx.moveTo(Math.cos(sa)*2,Math.sin(sa)*2);
+      bx.lineTo(Math.cos(sa)*(tw*0.50),Math.sin(sa)*(tw*0.50));
+      bx.stroke();
+    }
+    // Center cap
+    bx.fillStyle='#888'; bx.beginPath(); bx.arc(0,0,3,0,Math.PI*2); bx.fill();
+    bx.fillStyle='#333'; bx.beginPath(); bx.arc(0,0,1.5,0,Math.PI*2); bx.fill();
+    bx.restore();
+*/
+/*
+    // Speed blur overlay (motion lines when going fast)
+    const blur = Math.min(1, kart.speed / 20);
+    if(blur>0.15){
+      bx.save();
+      bx.globalAlpha = blur*0.35;
+      bx.strokeStyle='#1a1a1a'; bx.lineWidth=2;
+      for(let r=0;r<3;r++){
+        const ra=wheelRot+r*Math.PI*0.67;
+        bx.beginPath();
+        bx.arc(0,0,tw*0.62,ra,ra+Math.PI*0.4);
+        bx.stroke();
+      }
+      bx.globalAlpha=1;
+      bx.restore();
+    }
+*/
+    // Edge highlight (left rim sheen)
+    bx.fillStyle='rgba(255,255,255,0.05)';
+    bx.fillRect(-tw,-th,2,th*2);
+
+    bx.restore();
+  });
+
+  if(kart.slideR>0.28){
+    for(let s=0;s<3;s++){
+      bx.fillStyle=`rgba(210,205,190,${kart.slideR*0.28})`;
+      bx.fillRect((cx+(Math.random()-.5)*28+sway)|0,H-11,4,4);
+    }
+  }
+  if(kart.slipstream>0.08){
+    for(let f=0;f<4;f++){
+      bx.fillStyle=`rgba(0,${165+Math.random()*80|0},255,${kart.slipstream*0.68})`;
+      bx.fillRect((cx+(Math.random()-.5)*13+sway)|0,(H-15-(Math.random()*13))|0,4,4);
+    }
+  }
+}
+
+/* ── MINIMAP DRAW ────────────────────────────────────────────── */
+function drawMinimap(){
+  const MX=IW-MM_W-5,MY=5,PAD=3;
+  bx.fillStyle='rgba(0,0,0,0.80)';
+  bx.fillRect(MX-PAD,MY-PAD,MM_W+PAD*2,MM_H+PAD*2);
+  bx.strokeStyle='#f90';bx.lineWidth=1;
+  bx.strokeRect(MX-PAD,MY-PAD,MM_W+PAD*2,MM_H+PAD*2);
+  bx.drawImage(mmCv,MX,MY);
+  const km=toMM(kart.x,kart.y);
+  bx.save();
+  bx.translate(km.x+MX,km.y+MY);bx.rotate(kart.heading-Math.PI/2);
+  bx.fillStyle='#0ef';
+  bx.beginPath();bx.moveTo(0, 8);bx.lineTo(1.5,2);bx.lineTo(-1.5,2);bx.closePath();bx.fill();
+  bx.restore();
+}
+
+/* ── HUD — speedometer only at bottom-left ───────────────────── */
+function drawHUD(){
+  const W=IW,H=IH;
+  const kmh=kart.speed*3.6;
+
+  // Speedometer panel — extended height to include stamina bar
+  const px=5,py=H-62;
+  bx.fillStyle='rgba(0,0,0,0.74)';
+  bx.fillRect(px-2,py-2,122,64);
+
+  bx.fillStyle='#888';bx.font='bold 6px monospace';bx.fillText('KM/H',px,py+7);
+  bx.fillStyle='#fff';bx.font='bold 16px monospace';
+  bx.fillText(Math.round(kmh).toString().padStart(3,' '),px+28,py+10);
+
+  // Speed bar
+  bx.fillStyle='#111';bx.fillRect(px,py+14,112,5);
+  bx.fillStyle=kmh<70?'#0af':kmh<95?'#fa0':'#f55';
+  bx.fillRect(px,py+14,112*Math.min(1,kmh/110),5);
+
+  // RPM bar
+  const rPct=kart.rpm/PHY.maxRPM;
+  bx.fillStyle='#111';bx.fillRect(px,py+22,112,4);
+  bx.fillStyle=rPct<0.65?'#0c0':rPct<0.85?'#ff0':'#f00';
+  bx.fillRect(px,py+22,112*rPct,4);
+  bx.fillStyle='#555';bx.font='6px monospace';
+  bx.fillText((kart.rpm/1000).toFixed(1)+'k',px+86,py+21);
+
+  // Brake temp bar
+  bx.fillStyle='#888';bx.font='6px monospace';bx.fillText('BRK',px,py+36);
+  const bh=Math.max(0,Math.min(1,(tmp.brake-28)/(BRAKE_MAX-28)));
+  bx.fillStyle='#111';bx.fillRect(px+20,py+30,90,4);
+  bx.fillStyle=bh<0.45?'#444':bh<0.75?'#f80':'#f44';
+  bx.fillRect(px+20,py+30,90*bh,4);
+  bx.fillStyle='#555';bx.font='6px monospace';
+  bx.fillText(Math.round(tmp.brake)+'°',px+20,py+40);
+  if(tmp.brakeEff<0.62){
+    bx.fillStyle=`rgba(255,50,0,${0.65+Math.sin(Date.now()*0.012)*0.28})`;
+    bx.font='bold 6px monospace';bx.fillText('FADE',px+70,py+40);
+  }
+
+  // Stamina bar — shows "A" button endurance, red zone flashes when critical
+  {
+    const st=kart.stamina;
+    const stY=py+50;
+    bx.fillStyle='#666';bx.font='6px monospace';bx.fillText('STA',px,stY+6);
+    bx.fillStyle='#111';bx.fillRect(px+20,stY,90,5);
+    // Colour: green>50%, amber 25-50%, red<25% (flashes when very low)
+    const inRed=st<0.25;
+    const flash=inRed?0.7+Math.sin(Date.now()*0.022)*0.3:1;
+    const stCol=st>0.50?`rgba(0,200,80,${flash})`
+                :st>0.25?`rgba(240,160,0,${flash})`
+                        :`rgba(255,40,40,${flash})`;
+    bx.fillStyle=stCol;
+    bx.fillRect(px+20,stY,90*st,5);
+    // "A" label turns red in red zone
+    if(inRed){
+      bx.fillStyle=`rgba(255,60,60,${flash})`;
+      bx.font='bold 6px monospace';bx.fillText('[A]',px+74,stY+6);
+    }
+  }
+
+  // Lap / time — center top
+  bx.fillStyle='rgba(0,0,0,0.60)';bx.fillRect(W/2-60,3,120,32);
+  bx.fillStyle='#f90';bx.font='bold 8px monospace';bx.textAlign='center';
+  bx.fillText('LAP '+(kart.lap+1),W/2,13);
+  bx.fillStyle='#fff';bx.font='9px monospace';bx.fillText(fmtTime(kart.lapTime),W/2,23);
+  if(kart.bestLap<Infinity){bx.fillStyle='#0f0';bx.font='7px monospace';bx.fillText('BEST '+fmtTime(kart.bestLap),W/2,31);}
+  // Sector checkpoint indicators — S1 and S2
+  {
+    const s1Col=kart.cp1Done?'#0f0':'#555';
+    const s2Col=kart.cp2Done?'#0f0':'#555';
+    bx.font='bold 6px monospace';
+    bx.fillStyle=s1Col; bx.fillText('S1',W/2-14,40);
+    bx.fillStyle=s2Col; bx.fillText('S2',W/2+4,40);
+    if(kart.cp1Done&&kart.s1Time>0){
+      bx.fillStyle='#aaa';bx.font='6px monospace';
+      bx.fillText(fmtTime(kart.s1Time),W/2-24,47);
+    }
+    if(kart.cp2Done&&kart.s2Time>0){
+      bx.fillStyle='#aaa';bx.font='6px monospace';
+      bx.fillText(fmtTime(kart.s2Time-kart.s1Time),W/2+0,47);
+    }
+  }
+  bx.textAlign='left';
+
+  // Event message
+  if(kart.msgTimer>0){
+    const alpha=Math.min(1,kart.msgTimer*1.4);
+    const good=kart.msg.includes('BEST')||kart.msg.includes('SLIP')||kart.msg.includes('POWER');
+    bx.fillStyle=good?`rgba(0,255,120,${alpha})`:`rgba(255,60,0,${alpha})`;
+    bx.font='bold 13px monospace';bx.textAlign='center';
+    bx.fillText(kart.msg,W/2,H/2-14);
+    bx.textAlign='left';
+  }
+
+  // Screen FX
+  if(kart.onRedKerb){
+    bx.fillStyle=`rgba(255,0,0,${0.22+Math.sin(Date.now()*0.022)*0.10})`;
+    bx.fillRect(0,0,W,2);bx.fillRect(0,H-2,W,2);
+  }
+  if(K.agg()){
+    bx.strokeStyle=`rgba(255,100,0,${0.22+Math.sin(Date.now()*0.011)*0.14})`;
+    bx.lineWidth=2;bx.strokeRect(1,1,W-2,H-2);
+  }
+  if(kart.slipstream>0.04){
+    bx.fillStyle='rgba(0,140,255,0.20)';bx.fillRect(W/2-46,H-58,92,4);
+    bx.fillStyle='#0cf';bx.fillRect(W/2-46,H-58,92*kart.slipstream,4);
+  }
+
+
+  /* ── WIND RUSH — corte de vento periférico acima de 99 km/h ──
+     Vinheta radial + faixas laterais suaves. Sem linhas, sem grade.
+  ──────────────────────────────────────────────────────────────── */
+  {
+    const windKmh=kart.speed*3.6;
+    const wt=Math.max(0,Math.min(1,(windKmh-108)/32)); // 0@108 km/h → 1@140 km/h
+    if(wt>0.005){
+      bx.save();
+      const now=Date.now()*0.001;
+      const cx2=W/2, cy2=H*0.46;
+      // Vinheta radial: escurece bordas
+      const vg=bx.createRadialGradient(cx2,cy2,H*0.18,cx2,cy2,H*0.82);
+      vg.addColorStop(0,'rgba(0,0,0,0)');
+      vg.addColorStop(0.55,'rgba(0,0,0,0)');
+      vg.addColorStop(1,`rgba(0,2,18,${wt*0.32})`);
+      bx.fillStyle=vg; bx.fillRect(0,0,W,H);
+      // Faixas laterais pulsantes
+      const pulse=0.65+Math.sin(now*24)*0.35;
+      const sA=wt*0.11*pulse;
+      if(sA>0.004){
+        const gl=bx.createLinearGradient(0,0,W*0.20,0);
+        gl.addColorStop(0,`rgba(200,220,255,${sA})`);
+        gl.addColorStop(1,'rgba(200,220,255,0)');
+        bx.fillStyle=gl; bx.fillRect(0,0,W*0.20,H);
+        const gr=bx.createLinearGradient(W,0,W*0.80,0);
+        gr.addColorStop(0,`rgba(200,220,255,${sA})`);
+        gr.addColorStop(1,'rgba(200,220,255,0)');
+        bx.fillStyle=gr; bx.fillRect(W*0.80,0,W*0.20,H);
+      }
+      bx.restore();
+    }
+  }
+
+  /* LAP LIST PANEL — top-left, toggle with [L] */
+  if(showLapList){
+    const LX=5,LY=5;
+    const panW=104, panH=12+lapHistory.length*11+(lapHistory.length?2:0);
+    bx.fillStyle='rgba(0,0,0,0.72)';
+    bx.fillRect(LX-2,LY-2,panW,Math.max(22,panH));
+    bx.fillStyle='#f90';bx.font='bold 7px monospace';
+    bx.fillText('VOLTAS  [L]',LX,LY+7);
+    if(lapHistory.length===0){
+      bx.fillStyle='#444';bx.font='6px monospace';
+      bx.fillText('—',LX,LY+18);
+    } else {
+      for(let li=0;li<lapHistory.length;li++){
+        const t=lapHistory[li];
+        const isBest=(t===kart.bestLap);
+        bx.fillStyle=isBest?'#0f0':li===0?'#fff':'#aaa';
+        bx.font=(li===0?'bold ':'')+'7px monospace';
+        bx.fillText((li===0?'▶ ':'  ')+(li+1)+'. '+fmtTime(t), LX, LY+18+li*11);
+      }
+    }
+  }
+
+  drawMinimap();
+}
+
+function fmtTime(t){const m=Math.floor(t/60);return m+':'+(t%60).toFixed(2).padStart(5,'0');}
+
+function blit(){ctx.imageSmoothingEnabled=false;ctx.drawImage(buf,0,0,canvas.width,canvas.height);}
+
+/* ── AUDIO SYSTEM ─────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+   KartAudio — IAME Parilla X30 125cc 2T   Web Audio API
+   ═══════════════════════════════════════════════════════════════════════
+
+   MOTOR: pulsos de combustão discretos (técnica do engine_audio_lab)
+   ───────────────────────────────────────────────────────────────────────
+   O 2T dispara UMA vez por revolução.
+   Intervalo entre pulsos = 60 / RPM  (segundos)
+
+   Cada pulso gera um buffer de ruído com decay exponencial,
+   filtrado por um bandpass (ressôa o escapamento) + lowpass (corpo).
+   O crank osc (sawtooth grave) representa vibração do virabrequim.
+
+   CAMADAS AMBIENTAIS (ruído contínuo, mix controlado por gain):
+     wind      — vento aerodinâmico (↑ com v²)
+     tyreRoll  — rolamento / aspereza do asfalto
+     skid      — chiado de derrapagem (slideR + slideF)
+     kerb      — chocalho de zebra vermelha
+     mech      — corrente + embreagem centrífuga
+
+   ONE-SHOTS:
+     barrierHit() — batida nas barreiras (thud grave + click agudo)
+     kerbBump()   — solavanco individual de zebra
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const KartAudio = (() => {
+
+  const IDLE = 3200;
+  const MAX  = 13500;
+
+  const clamp = (v,a,b) => v<a?a:v>b?b:v;
+
+  let ctx, master, comp;
+
+  // ── Crank — vibração grave do virabrequim (igual ao lab)
+  let crankOsc, crankLP, crankGain;
+
+  // ── Camadas ambientais de ruído
+  let noiseBuf;
+  let windSrc,  windLP,  windGain;
+  let rollSrc,  rollBP,  rollGain;
+  let skidSrc,  skidHP,  skidBP,  skidGain;
+  let kerbSrc,  kerbBP,  kerbGain;
+  let mechSrc,  mechBP,  mechGain;
+
+  // ── Estado de simulação
+  let audioRPM   = IDLE;   // RPM filtrado para o áudio
+  let pulseTimer = 0;      // acumulador de tempo até próximo disparo
+  let prevThrot  = 0;
+  let prevKerbB  = 0;
+  let prevImpact = 0;
+
+  // ── TYRE PHYSICS SOUNDS (from tyre audio lab) ─────────────────
+  // Oversteer slide layer
+  let slideGain, slideBP, slideHP;
+  // Hard brake layer
+  let brakeGain, brakeBP, brakeRes;
+  // Aggressive steer layer
+  let steerGain, steerBP, steerHP, steerLFO, steerChaos;
+  let steerChirpTimer = 0;
+
+  // ════════════════════════════════════════════════════════════════
+  //  Gerador de ruído rosa (Voss-McCartney)
+  // ════════════════════════════════════════════════════════════════
+  function makePinkNoise(secs) {
+    const buf = ctx.createBuffer(1, ctx.sampleRate*secs, ctx.sampleRate);
+    const d   = buf.getChannelData(0);
+    let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0;
+    for (let i=0; i<d.length; i++) {
+      const w = Math.random()*2-1;
+      b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+      b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+      b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+      d[i] = clamp((b0+b1+b2+b3+b4+b5+w*0.5362)*0.13, -1, 1);
+    }
+    return buf;
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  build() — constrói o grafo de nós (chamado 1x no startGame)
+  // ════════════════════════════════════════════════════════════════
+  function build() {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Compressor suave — headroom para picos dos pulsos
+    comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -10;
+    comp.knee.value      =   8;
+    comp.ratio.value     =   4;
+    comp.attack.value    =   0.002;
+    comp.release.value   =   0.15;
+
+    master = ctx.createGain();
+    master.gain.value = 0.88;
+    comp.connect(master);
+    master.connect(ctx.destination);
+
+    noiseBuf = makePinkNoise(3);
+
+    // ── CRANK OSCILLATOR (exatamente como o lab) ──────────────────
+    crankOsc  = ctx.createOscillator();
+    crankOsc.type = 'sawtooth';
+    crankOsc.frequency.value = IDLE/60;
+    crankLP   = ctx.createBiquadFilter();
+    crankLP.type = 'lowpass';
+    crankLP.frequency.value = 450;    // lab usa 450 Hz — mantido fiel
+    crankGain = ctx.createGain();
+    crankGain.gain.value = 0.25;      // lab usa 0.25
+    crankOsc.connect(crankLP);
+    crankLP.connect(crankGain);
+    crankGain.connect(master);        // vai direto ao master (igual ao lab)
+    crankOsc.start();
+
+    // ── RUÍDO MECÂNICO (corrente + embreagem centrífuga) ──────────
+    mechSrc  = ctx.createBufferSource();
+    mechSrc.buffer = noiseBuf; mechSrc.loop = true;
+    mechBP   = ctx.createBiquadFilter();
+    mechBP.type='bandpass'; mechBP.frequency.value=950; mechBP.Q.value=2.4;
+    mechGain = ctx.createGain(); mechGain.gain.value=0;
+    mechSrc.connect(mechBP); mechBP.connect(mechGain); mechGain.connect(comp);
+    mechSrc.start();
+
+    // ── VENTO ─────────────────────────────────────────────────────
+    windSrc  = ctx.createBufferSource();
+    windSrc.buffer = noiseBuf; windSrc.loop = true;
+    windLP   = ctx.createBiquadFilter();
+    windLP.type='lowpass'; windLP.frequency.value=900;
+    windGain = ctx.createGain(); windGain.gain.value=0;
+    windSrc.connect(windLP); windLP.connect(windGain); windGain.connect(comp);
+    windSrc.start();
+
+    // ── ROLAMENTO DE PNEUS ────────────────────────────────────────
+    rollSrc  = ctx.createBufferSource();
+    rollSrc.buffer = noiseBuf; rollSrc.loop = true;
+    rollBP   = ctx.createBiquadFilter();
+    rollBP.type='bandpass'; rollBP.frequency.value=130; rollBP.Q.value=0.5;
+    rollGain = ctx.createGain(); rollGain.gain.value=0;
+    rollSrc.connect(rollBP); rollBP.connect(rollGain); rollGain.connect(comp);
+    rollSrc.start();
+
+    // ── CHIADO DE DERRAPAGEM ──────────────────────────────────────
+    skidSrc  = ctx.createBufferSource();
+    skidSrc.buffer = noiseBuf; skidSrc.loop = true;
+    skidHP   = ctx.createBiquadFilter();
+    skidHP.type='highpass'; skidHP.frequency.value=900;
+    skidBP   = ctx.createBiquadFilter();
+    skidBP.type='bandpass'; skidBP.frequency.value=2800; skidBP.Q.value=1.5;
+    skidGain = ctx.createGain(); skidGain.gain.value=0;
+    skidSrc.connect(skidHP); skidHP.connect(skidBP);
+    skidBP.connect(skidGain); skidGain.connect(comp);
+    skidSrc.start();
+
+    // ── CHOCALHO DE ZEBRA ─────────────────────────────────────────
+    kerbSrc  = ctx.createBufferSource();
+    kerbSrc.buffer = noiseBuf; kerbSrc.loop = true;
+    kerbBP   = ctx.createBiquadFilter();
+    kerbBP.type='bandpass'; kerbBP.frequency.value=210; kerbBP.Q.value=1.3;
+    kerbGain = ctx.createGain(); kerbGain.gain.value=0;
+    kerbSrc.connect(kerbBP); kerbBP.connect(kerbGain); kerbGain.connect(comp);
+    kerbSrc.start();
+
+    // ── TYRE PHYSICS — OVERSTEER SLIDE ───────────────────────────
+    const slideSrc = ctx.createBufferSource();
+    slideSrc.buffer = noiseBuf; slideSrc.loop = true;
+    slideHP = ctx.createBiquadFilter();
+    slideHP.type = 'highpass'; slideHP.frequency.value = 900;
+    slideBP = ctx.createBiquadFilter();
+    slideBP.type = 'bandpass'; slideBP.frequency.value = 2600; slideBP.Q.value = 2.2;
+    slideGain = ctx.createGain(); slideGain.gain.value = 0;
+    slideSrc.connect(slideHP); slideHP.connect(slideBP);
+    slideBP.connect(slideGain); slideGain.connect(comp);
+    slideSrc.start();
+
+    // ── TYRE PHYSICS — HARD BRAKE SQUEAL ─────────────────────────
+    const brakeSrc = ctx.createBufferSource();
+    brakeSrc.buffer = noiseBuf; brakeSrc.loop = true;
+    brakeBP = ctx.createBiquadFilter();
+    brakeBP.type = 'bandpass'; brakeBP.frequency.value = 4200; brakeBP.Q.value = 6;
+    brakeRes = ctx.createBiquadFilter();
+    brakeRes.type = 'peaking'; brakeRes.frequency.value = 5200;
+    brakeRes.Q.value = 10; brakeRes.gain.value = 14;
+    brakeGain = ctx.createGain(); brakeGain.gain.value = 0;
+    brakeSrc.connect(brakeBP); brakeBP.connect(brakeRes);
+    brakeRes.connect(brakeGain); brakeGain.connect(comp);
+    brakeSrc.start();
+
+    // ── TYRE PHYSICS — AGGRESSIVE STEER ──────────────────────────
+    const steerSrc = ctx.createBufferSource();
+    steerSrc.buffer = noiseBuf; steerSrc.loop = true;
+    steerHP = ctx.createBiquadFilter();
+    steerHP.type = 'highpass'; steerHP.frequency.value = 1500;
+    steerBP = ctx.createBiquadFilter();
+    steerBP.type = 'bandpass'; steerBP.frequency.value = 4200; steerBP.Q.value = 3.5;
+    // Fast vibration LFO
+    steerLFO = ctx.createOscillator(); steerLFO.frequency.value = 45;
+    const steerLFOMod = ctx.createGain(); steerLFOMod.gain.value = 1200;
+    steerLFO.connect(steerLFOMod); steerLFOMod.connect(steerBP.frequency);
+    // Natural chaos
+    steerChaos = ctx.createOscillator(); steerChaos.frequency.value = 7;
+    const chaosGain = ctx.createGain(); chaosGain.gain.value = 0.15;
+    steerChaos.connect(chaosGain); chaosGain.connect(steerBP.Q);
+    steerGain = ctx.createGain(); steerGain.gain.value = 0;
+    steerSrc.connect(steerHP); steerHP.connect(steerBP);
+    steerBP.connect(steerGain); steerGain.connect(comp);
+    steerSrc.start(); steerLFO.start(); steerChaos.start();
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  fire(power, rpm) — um pulso de combustão
+  //  Fiel ao lab, com melhorias: BP afina com RPM, LP sobe com RPM
+  // ════════════════════════════════════════════════════════════════
+  function fire(power, rpm) {
+    const now = ctx.currentTime;
+
+    // Buffer de explosão — lab usa 256 samples com decay exp
+    const bufLen = 256;
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const d   = buf.getChannelData(0);
+    for (let i=0; i<bufLen; i++)
+      d[i] = (Math.random()*2-1) * Math.exp(-i/40);  // lab: /40
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+
+    // Ressonância do tubo de escape — afina levemente com RPM
+    // Lab usa 300+rnd*200; aqui adicionamos correlação com RPM
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 280 + (rpm/MAX)*220 + Math.random()*160;
+    bp.Q.value = 2.8 + Math.random()*1.0;
+
+    // Corpo do escape — lab usa 2200 Hz fixo; aqui abre com RPM
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1800 + (rpm/MAX)*1600;
+
+    // Envelope: ataque instantâneo, decay 60 ms — igual ao lab
+    const gn = ctx.createGain();
+    gn.gain.setValueAtTime(power, now);
+    gn.gain.exponentialRampToValueAtTime(0.001, now+0.06);  // lab: 0.06
+
+    src.connect(bp); bp.connect(lp); lp.connect(gn); gn.connect(comp);
+    src.start(now);
+    src.stop(now+0.07);  // lab: 0.07
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  One-shot: batida na barreira de pneus
+  // ════════════════════════════════════════════════════════════════
+  function barrierHit(force) {
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const vol = clamp(force*0.028, 0.07, 1.0);
+    // Thud grave + transiente médio + clique agudo
+    [{f0:52,f1:20,dur:0.28,g:vol*0.9,t:'triangle'},
+     {f0:145,f1:52,dur:0.13,g:vol*0.55,t:'square'},
+     {f0:880,f1:190,dur:0.055,g:vol*0.32,t:'sawtooth'}
+    ].forEach(({f0,f1,dur,g,t}) => {
+      const o=ctx.createOscillator(), gn=ctx.createGain();
+      o.type=t;
+      o.frequency.setValueAtTime(f0,now);
+      o.frequency.exponentialRampToValueAtTime(f1,now+dur);
+      gn.gain.setValueAtTime(g,now);
+      gn.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+      o.connect(gn); gn.connect(master);
+      o.start(now); o.stop(now+dur+0.01);
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  One-shot: solavanco de zebra
+  // ════════════════════════════════════════════════════════════════
+  function kerbBump(intensity) {
+    if (!ctx || intensity<0.15) return;
+    const now=ctx.currentTime;
+    const o=ctx.createOscillator(), gn=ctx.createGain();
+    o.type='triangle';
+    o.frequency.setValueAtTime(82+intensity*55,now);
+    o.frequency.exponentialRampToValueAtTime(26,now+0.09);
+    gn.gain.setValueAtTime(clamp(intensity*0.60,0,0.80),now);
+    gn.gain.exponentialRampToValueAtTime(0.0001,now+0.12);
+    o.connect(gn); gn.connect(master);
+    o.start(now); o.stop(now+0.14);
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  brakeChirp() — chirp de freio brusco
+  // ════════════════════════════════════════════════════════════════
+  function brakeChirp() {
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator(), gn = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(7000, now);
+    osc.frequency.exponentialRampToValueAtTime(1800, now + 0.08);
+    gn.gain.setValueAtTime(0.75, now);
+    gn.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    osc.connect(gn); gn.connect(comp);
+    osc.start(now); osc.stop(now + 0.10);
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  steerChirp() — micro-chirp de esterço agressivo
+  // ════════════════════════════════════════════════════════════════
+  function steerChirp() {
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator(), gn = ctx.createGain();
+    osc.type = 'triangle';
+    const fStart = 5200 + Math.random() * 1800;
+    osc.frequency.setValueAtTime(fStart, now);
+    osc.frequency.exponentialRampToValueAtTime(1600 + Math.random() * 400, now + 0.04);
+    gn.gain.setValueAtTime(0.18, now);
+    gn.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+    osc.connect(gn); gn.connect(comp);
+    osc.start(now); osc.stop(now + 0.06);
+  }
+
+  // ── Estado para one-shots de pneu ────────────────────────────────
+  let prevBrake = 0;
+
+  // ════════════════════════════════════════════════════════════════
+  //  update(dt, s) — chamado uma vez por frame no game loop
+  // ════════════════════════════════════════════════════════════════
+  function update(dt, s) {
+    if (!ctx || ctx.state !== 'running') return;
+
+    const rpm    = s.rpm;
+    const kmh    = s.speed * 3.6;
+    const throt  = s.throttle;
+    const slideR = s.slideR;
+    const slideF = s.slideF;
+    const kerbB  = s.kerbBounce;
+    const onGrass= s.onGrass;
+    const impact = s.impactForce || 0;
+
+    // ── One-shots ──────────────────────────────────────────────────
+    if (impact > 0.5 && prevImpact < 0.4)  barrierHit(impact);
+    if (kerbB  > 0.30 && prevKerbB  < 0.15) kerbBump(kerbB);
+
+    prevThrot  = throt;
+    prevKerbB  = kerbB;
+    prevImpact = impact;
+
+    // ── RPM filtrado — taxa idêntica ao lab (fator 4) ──────────────
+    audioRPM += (rpm - audioRPM) * clamp(4*dt, 0, 1);
+
+    const now  = ctx.currentTime;
+    const rpmN = clamp((audioRPM-IDLE)/(MAX-IDLE), 0, 1);
+    const spdN = clamp(kmh/140, 0, 1);
+
+    // ── CRANK (exatamente como o lab) ─────────────────────────────
+    crankOsc.frequency.setTargetAtTime(audioRPM/60, now, 0.04);
+    crankOsc.detune.value = (1 - clamp(1-slideR*0.7-slideF*0.35,0.2,1)) * 80;  // lab: *80
+
+    // Volume do crank: aumenta levemente com RPM
+    const crankVol = 0.20 + rpmN*0.18 + throt*0.06;
+    crankGain.gain.setTargetAtTime(crankVol, now, 0.05);
+
+    // Filtro do crank abre com RPM (mais harmônicos em rotação alta)
+    crankLP.frequency.setTargetAtTime(380+rpmN*480, now, 0.05);
+
+    // ── FIRING PULSES (idêntico ao lab, refinado) ──────────────────
+    pulseTimer += dt;
+    const interval = 60.0 / audioRPM;  // 2T: 1 disparo por revolução
+
+    while (pulseTimer >= interval) {
+      pulseTimer -= interval;
+
+      // Potência base: lab usa .2+(rpm/MAX)*.5
+      let power = 0.20 + rpmN*0.52;
+
+      // Throttle amplifica (aceleração = explosão mais forte)
+      power += throt * 0.28;
+
+      // Slip: ignição irregular — lab usa grip<0.6, chance 35%, *0.2
+      const grip = clamp(1 - slideR*0.65 - slideF*0.35, 0.2, 1.0);
+      if (grip < 0.6 && Math.random() < 0.35) power *= 0.20;
+
+      // Overrun crackle — lab: !throttle && rpm>7000 && rnd<0.3 → *1.6
+      if (throt < 0.05 && audioRPM > 6500) {
+        if (Math.random() < 0.30) {
+          power *= 1.5;   // pulso forte e irregular (estalo)
+        } else if (Math.random() < 0.50) {
+          continue;       // pulso suprimido = crackle assimétrico
+        }
+      }
+
+      // Ralenti: pulso mais fraco e irregular
+      if (audioRPM < IDLE*1.1) power *= 0.45 + Math.random()*0.30;
+
+      fire(power, audioRPM);
+    }
+
+    // ── RUÍDO MECÂNICO ─────────────────────────────────────────────
+    mechBP.frequency.value = 700 + rpmN*1300;
+    const mechTgt = 0.04 + rpmN*0.10 + throt*0.05;
+    mechGain.gain.setTargetAtTime(mechTgt, now, 0.06);
+
+    // ── VENTO ──────────────────────────────────────────────────────
+    windLP.frequency.value = 800 + spdN*2800;
+    windGain.gain.setTargetAtTime(spdN*spdN * 0.40, now, 0.10);
+
+    // ── ROLAMENTO ──────────────────────────────────────────────────
+    rollBP.frequency.value = 55 + spdN*250;
+    rollGain.gain.setTargetAtTime(spdN*(onGrass?0.40:0.18), now, 0.08);
+
+    // ── CHIADO ─────────────────────────────────────────────────────
+    const skidI = clamp(slideR*1.7 + slideF*0.60, 0, 1.0);
+    skidBP.frequency.value = 1900 + skidI*2600;
+    skidGain.gain.setTargetAtTime(skidI*0.28, now, skidI>0.05?0.04:0.12);
+
+    // ── CHOCALHO DE KERB ───────────────────────────────────────────
+    kerbBP.frequency.value = 190 + kerbB*130;
+    kerbGain.gain.setTargetAtTime(kerbB*0.36, now, 0.03);
+
+    // ════ TYRE PHYSICS AUDIO ════════════════════════════════════════
+    // All three layers require [A] (aggressive mode) to activate.
+    // Normal steering and braking are silent — only [A] + hard input triggers sounds.
+    const agg = s.aggressive || 0; // 1 when [A] held, 0 otherwise
+
+    // ── OVERSTEER SLIDE ────────────────────────────────────────────
+    // Only fires when [A] is held AND rear is genuinely sliding (slideR > 0.30)
+    const slideLevel = agg * clamp((slideR - 0.30) / 0.70, 0, 1);
+    slideGain.gain.setTargetAtTime(slideLevel * 0.55, now, 0.05);
+    slideBP.frequency.setTargetAtTime(2200 + slideLevel * 800, now, 0.06);
+
+    // ── HARD BRAKE SQUEAL ──────────────────────────────────────────
+    // Only fires when [A] held + braking hard (>0.70) at speed
+    const hardBrake = s.brake || 0;
+    const brakeSqueal = agg * clamp((hardBrake - 0.70) / 0.30, 0, 1) * clamp(kmh / 40, 0, 1);
+    brakeGain.gain.setTargetAtTime(brakeSqueal * 0.65, now, 0.025);
+    // One-shot chirp only on [A] + hard brake transition
+    if (agg && hardBrake > 0.70 && prevBrake <= 0.70 && kmh > 15) brakeChirp();
+    prevBrake = hardBrake;
+
+    // ── AGGRESSIVE STEER SQUEAL ────────────────────────────────────
+    // Only fires when [A] held + front tyre slip is significant
+    const aggSteer = s.aggressiveSteer || 0;
+    const steerLevel = agg * clamp(aggSteer, 0, 1) * clamp(kmh / 25, 0, 1);
+    steerBP.frequency.setTargetAtTime(3600 + steerLevel * 2500, now, 0.02);
+    steerGain.gain.setTargetAtTime(steerLevel * 0.55, now, 0.03);
+
+    // Micro-chirps only during [A] + active steer squeal
+    if (steerLevel > 0.1) {
+      steerChirpTimer += dt;
+      if (steerChirpTimer > 0.05 + Math.random() * 0.09) {
+        steerChirp();
+        steerChirpTimer = 0;
+      }
+    } else {
+      steerChirpTimer = 0;
+    }
+  }
+
+  // ── API pública ─────────────────────────────────────────────────
+  return {
+    init() {
+      build();
+      if (ctx && ctx.state==='suspended') ctx.resume();
+    },
+    update,
+  };
+
+})();
+
+let running=false,lastT=0,accum=0;
+const STEP=1/120;
+function loop(t){
+  if(!running){requestAnimationFrame(loop);return;}
+  if(!lastT)lastT=t;
+  const fr=Math.min((t-lastT)/1000,0.05);lastT=t;accum+=fr;
+  while(accum>=STEP){physics(STEP);updateCam(STEP);accum-=STEP;}
+  /* ── Audio update: build state object from kart, call once per frame */
+  KartAudio.update(fr, {
+    rpm:              kart.rpm,
+    speed:            kart.speed,
+    throttle:         kart.accelPedal,
+    brake:            kart.brakePedal,
+    slideR:           kart.slideR,
+    slideF:           kart.slideF,
+    kerbBounce:       kart.kerbBounce,
+    onGrass:          !kart.onRoad && !kart.onRedKerb && !kart.onBlueKerb,
+    impactForce:      kart.impactForce,
+    aggressive:       K.agg() ? 1 : 0,
+    aggressiveSteer:  kart.tyreSlipF,
+  });
+  kart.impactForce = 0;              // clear after audio consumed it
+  render();drawHUD();blit();
+  requestAnimationFrame(loop);
+}
+function startGame(){
+  document.getElementById('overlay').style.display='none';
+  running=true;
+  KartAudio.init();   // resumes AudioContext after user gesture (browser policy)
+}
+
+// Show persistent best laps in overlay
+(function showOverlayBests(){
+  const bl=document.getElementById('bestList');
+  const bests=loadBestLaps();
+  if(!bests.length){bl.textContent='Sem voltas salvas';return;}
+  let h='<b style="color:#f90">MELHORES VOLTAS</b><br>';
+  bests.forEach((t,i)=>{ h+=`${i+1}. ${fmtTime(t)}<br>`; });
+  bl.innerHTML=h;
+})();
+requestAnimationFrame(loop);
+
+function resetBestLaps(){
+  localStorage.removeItem('kartBestLaps');
+  persistBests=[];
+  document.getElementById('bestList').innerHTML='';
+}
+</script>
+</body>
+</html>
