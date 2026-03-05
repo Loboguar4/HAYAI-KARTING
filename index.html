@@ -65,9 +65,7 @@
   ║           L = voltas | F = fullscreen                                    ║
   ║  Mouse:   RMB = acelerar | LMB = frear | X = esterço                     ║
   ╠══════════════════════════════════════════════════════════════════════════╣
-  ║  PARA APOIAR PROJETOS INDEPENDENTES: [github.com/Loboguar4]              ║
-  ║                                      [youtube.com/@esc-SubDev]           ║
-  ║                                      [pixgg.com/bandeirinha]]            ║
+  ║  PARA APOIAR PROJETOS INDEPENDENTES: [meus links]                        ║
   ╚══════════════════════════════════════════════════════════════════════════╝
 -->
 <html lang="pt-BR">
@@ -518,31 +516,31 @@ const BARRIERS = [
     margin: 20,               // margem de colisão (px)
     restitution: 0.25,        // elasticidade do impacto
   },
-    /* ── BARREIRA A-1 (menor)── ângulo fechado interno (bolso do "V")
+  /* ── BARREIRA A-1 (menor)── ângulo fechado interno (bolso do "V")
      Fica na grama entre a descida diagonal e a reta principal.
      Ângulo levemente inclinado para seguir o formato do "V". */
   {
-    cx: 0.125,   cy: 0.856,   // posição normalizada (0-1)
-    angleDeg: -2,              // graus — leve inclinação seguindo o V
-    cols: 2,                  // 7 colunas = barreira comprida
-    rows: 1,                  // 5 pneus de altura
-    tyreR: 11,                // raio do pneu em pixels mundo
-    gap: 1,                   // espaço entre colunas (px)
-    curve: 0.0,               // curvatura suave (arqueada levemente)
-    colA:    '#181818',       // cor principal dos pneus
-    colB:    '#2a2a2a',       // cor alternada
-    rimCol:  '#909090',       // aro metálico
-    bandCol: '#dd1100',       // faixa de aviso vermelha
-    margin: 20,               // margem de colisão (px)
-    restitution: 0.55,        // elasticidade do impacto
+    cx: 0.125,   cy: 0.856,
+    angleDeg: -2,
+    cols: 2,
+    rows: 1,
+    tyreR: 11,
+    gap: 1,
+    curve: 0.0,
+    colA:    '#181818',
+    colB:    '#2a2a2a',
+    rimCol:  '#909090',
+    bandCol: '#dd1100',
+    margin: 20,
+    restitution: 0.55,
   },
   /* ── BARREIRA B ── área de escape exterior da curva
      Fica no lado de fora da diagonal, na zona de runoff.
      Paralela à diagonal (~158°) para bloquear atalhos. */
   {
-    cx: 0.,   cy: 0.884,
+    cx: 0.99,   cy: 0.884,
     angleDeg: -97,            // paralela à diagonal de descida
-    cols: 27,                  // 8 colunas = barreira ligeiramente mais longa
+    cols: 27,                 // 27 colunas
     rows: 1,
     tyreR: 38,
     gap: 1,
@@ -553,6 +551,23 @@ const BARRIERS = [
     bandCol: '#ff8800',       // faixa laranja (diferencia da barreira A)
     margin: 20,
     restitution: 0.25,
+  },
+  /* ── BARREIRA C ── Topo do circuito
+     Fica na grama, na zona de grama impedindo atalhos. */
+  {
+    cx: 0.430,   cy: 0.140,
+    angleDeg: -99,            // paralela à reta anterior e posterior
+    cols: 17,                 // 17 colunas
+    rows: 1,
+    tyreR: 38,
+    gap: 1,
+    curve: 0.0,               // sem curvatura
+    colA:    '#181818',
+    colB:    '#2a2a2a',
+    rimCol:  '#909090',
+    bandCol: '#ff8800',       // faixa laranja (diferencia da barreira A)
+    margin: 20,
+    restitution: 0.45,
   },
 ];
 
