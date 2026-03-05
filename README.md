@@ -155,6 +155,8 @@ Distribuído sob a licença **Apache 2.0**. Veja `LICENSE` para detalhes.
 
 **Bandeirinha**
 
+---
+
 Para apoiar esse e mais projetos independentes:
 
 [github.com/Loboguar4]
