@@ -1,6 +1,8 @@
 
 # HAYAI KARTING: Traction Lab
 
+<https://loboguar4.github.io/HAYAI-KARTING/>
+
 **Alpha 0.5 — Modo Treino Livre**
 
 > *Hayai* (速い) — japonês: rápido, veloz.
@@ -155,9 +157,9 @@ Distribuído sob a licença **Apache 2.0**. Veja `LICENSE` para detalhes.
 
 Para apoiar esse e mais projetos independentes:
 
-github.com/Loboguar4
-youtube.com/@esc-SubDev
-pixgg.com/bandeirinha
+[github.com/Loboguar4]
+[youtube.com/@esc-SubDev]
+[pixgg.com/bandeirinha]
 
 ---
 
