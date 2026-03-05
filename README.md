@@ -80,7 +80,7 @@ Acumulador de stress determinístico: `brakeStress` sobe durante frenagem pesada
 - **Freios:** aquecimento proporcional à velocidade. Eficácia cresce até 280°C, fade começa após 600°C.
 
 ### Stamina
-Tecla `[A]` consome resistência em ~3s. Recuperação passiva em ~25s. Abaixo de 5% entra na "zona vermelha" — `[A]` bloqueado e mensagem "CANSADO!".
+Tecla `[A]` consome resistência em ~3s. Recuperação passiva em ~25s. Abaixo de 25% entra na "zona vermelha" — 5%: `[A]` bloqueado e mensagem "CANSADO!".
 
 ### Slipstream
 `[A]` + `↑` sem curva acumula vácuo (0→1 em ~0,5s), com bônus de velocidade e visual de partículas azuis.
