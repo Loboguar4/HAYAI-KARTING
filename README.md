@@ -75,7 +75,7 @@ CG baixo do kart (`h/wb = 0,22/1,05 = 0,210`). Frenagem pesada reduz o grip tras
 ### Lock-up de freio
 Acumulador de stress determinístico: `brakeStress` sobe durante frenagem pesada em alta velocidade, trava quando atinge 1,0. Pumping (soltar o freio) drena 4× mais rápido.
 
-### Temperatura
+### Temperatura (em fase de aprimoramento)
 - **Pneus:** aquecimento por forças laterais, frenagem e aceleração. Grip ótimo entre 72–92°C; acima de 118°C o grip degrada.
 - **Freios:** aquecimento proporcional à velocidade. Eficácia cresce até 280°C, fade começa após 600°C.
 
