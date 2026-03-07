@@ -57,7 +57,7 @@ Ative o controle por mouse no menu e ajuste a sensibilidade pelo slider.
 
 ## Sistemas físicos implementados
 
-### Motor — IAME Parilla X30 125cc
+### Motor — IAME Parilla X30 125cc (calibrando IDLE e rotação baixa atualmente)
 Curva de torque modelada por gaussiana calibrada (~28 Nm de pico a 11.000 rpm), com shoulder secundário em ~8.500 rpm representando o comportamento real do 2T. O motor reproduz comportamento de ralenti a 3.200 rpm, power band entre 9.500–13.500 rpm e temperatura de freio afetando a eficácia.
 
 ### Modelo de pneu — Bicycle Model + Hybrid Tyre
