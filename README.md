@@ -3,7 +3,7 @@
 
 <https://loboguar4.github.io/HAYAI-KARTING/>
 
-**Alpha 0.5 — Modo Treino Livre**
+**Alpha 0.5 — Modo Treino Livre e Tomada de Tempo**
 
 > *Hayai* (速い) — japonês: rápido, veloz.
 
